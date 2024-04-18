@@ -1,9 +1,13 @@
 import json
+import os
 import google.generativeai as genai
 from flask import Flask, jsonify, make_response, request as rq
 from flask_httpauth import HTTPBasicAuth
+import perplexity as perplexityapi
 from werkzeug.security import generate_password_hash, check_password_hash
 import requests
+import cloudscraper
+
 app = Flask(__name__)
 
 auth = HTTPBasicAuth()
@@ -40,14 +44,30 @@ def request():
         for v in r:
             v = str(v).split(":")
             headers[v[0].strip()] = v[1].strip()
-            return headers
+        return headers
     headers = fix_head(headers)
     j = headers.get("Content-Type", None)
     j = headers.get("content-type", j)
     if j and j.find("json") != -1:
         d = json.dumps(d)
     try:
-        response = requests.request(method, url, headers=headers, data=d)
+        session = cloudscraper.create_scraper(
+            debug=False,
+            delay=10,
+            browser={
+                'browser': 'chrome',
+                'platform': 'ios',
+                'desktop': False
+            },
+            interpreter='js2py',
+            allow_brotli=False,
+            captcha={
+                'provider': '2captcha',
+                'api_key': os.getenv("TwoCaptcha_API_KEY")
+            }
+        )
+        headers = {**session.headers, **headers}
+        response = session.request(method, url, headers=headers, data=d)
         d = {
             'success': True,
             'data': response.text
@@ -59,6 +79,31 @@ def request():
             'error': m
         }
     return jsonify(d)
+
+
+@app.route("/perplexity", methods=['POST', 'GET'])
+@auth.login_required
+def perplexity():
+    data = {**request.form, **request.args}
+    sessionKey = data.get("sessionKey", None)
+    conversationId = data.get("conversationId", None)
+    focus = data.get("focus", "internet")
+    prompt = data.get("prompt", None)
+    mode = data.get("mode", "copilot")
+    email = data.get("email", None)
+    try:
+        perplexity = perplexityapi.Perplexity(cookies=sessionKey, email=email)
+        answer = perplexity.search_sync(prompt, mode=mode, focus=focus)
+        data = {
+            'success': True,
+            'data': answer
+        }
+    except perplexityapi.CustomException as e:
+        data = {
+            'success': False,
+            **e.getJSON()
+        }
+    return jsonify(data)
 
 
 @app.route("/bard", methods=['POST', 'GET'])
