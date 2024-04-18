@@ -1,6 +1,5 @@
 # import the required libraries
 import time
-import tls_client
 import json
 import random
 import re
@@ -125,11 +124,7 @@ class temp_mail():
         self.last_email = []
         self.temp = None
         self.create = create
-        self.client = tls_client.Session(
-            client_identifier="chrome112",
-            random_tls_extension_order=True,
-            debug=False
-        )
+        self.client = requests.Session()
         pass
 
     def deleteEmail(self):
