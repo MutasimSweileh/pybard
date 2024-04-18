@@ -89,7 +89,7 @@ class Perplexity:
     def get_session(self) -> Session:
         self.session = Session()
         self.session = cloudscraper.create_scraper(
-            debug=False,
+            debug=True,
             delay=30,
             browser={
                 'browser': 'chrome',
