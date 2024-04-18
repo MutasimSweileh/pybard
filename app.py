@@ -1,8 +1,9 @@
+import json
 import google.generativeai as genai
-from flask import Flask, jsonify, make_response, request
+from flask import Flask, jsonify, make_response, request as rq
 from flask_httpauth import HTTPBasicAuth
 from werkzeug.security import generate_password_hash, check_password_hash
-
+import requests
 app = Flask(__name__)
 
 auth = HTTPBasicAuth()
@@ -20,34 +21,64 @@ def verify_password(username, password):
         return username
 
 
+@app.route("/request", methods=['POST', 'GET'])
+@auth.login_required
+def request():
+    data = rq.get_json()
+    data = {**rq.form, **rq.args, **data}
+    url = data.get("url", None)
+    headers = data.get("headers", {})
+    d = data.get("data", None)
+    method = data.get("method", "POST" if d else "GET")
+
+    def fix_head(r):
+        headers = {}
+        for v in r:
+            v = str(v).split(":")
+            headers[v[0]] = v[1]
+            return headers
+    headers = fix_head(headers)
+    j = headers.get("Content-Type", None)
+    j = headers.get("content-type", j)
+    if j and j.find("json") != -1:
+        d = json.dumps(d)
+    try:
+        response = requests.request(method, url, headers=headers, data=d)
+        d = {
+            'success': True,
+            'data': response.text
+        }
+    except Exception as e:
+        m = str(e)
+        d = {
+            'success': False,
+            'error': m
+        }
+    return jsonify(d)
+
+
 @app.route("/bard", methods=['POST', 'GET'])
 @auth.login_required
 def bard():
-    # "mohtasm.com@gmail.com"
-    data = {**request.form, **request.args}
-    sessionKey = data.get("sessionKey", None)
-    conversationId = data.get("conversationId", None)
-    prompt = data.get("prompt", None)
-    # openai.headless = False
+    data = rq.get_json()
+    data = {**rq.form, **rq.args, **data}
     bard = ai_bard(data)
-    print(bard)
     return jsonify(bard)
 
 
 def ai_bard(data):
     key = data.get("key")
-    sessionKey = data.get("sessionKey", None)
-    conversationId = data.get("conversationId", None)
+    model_name = data.get("model", "gemini-1.5-pro-latest")
     prompt = data.get("prompt", None)
     try:
         genai.configure(api_key=key)
-        generation_config = {
+        generation_config = data.get("generation_config", {
             "temperature": 0.9,
             "top_p": 1,
             "top_k": 1,
             "max_output_tokens": 2048,
-        }
-        safety_settings = [
+        })
+        safety_settings = data.get("safety_settings", [
             {
                 "category": "HARM_CATEGORY_HARASSMENT",
                 "threshold": "BLOCK_MEDIUM_AND_ABOVE"
@@ -64,19 +95,18 @@ def ai_bard(data):
                 "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
                 "threshold": "BLOCK_MEDIUM_AND_ABOVE"
             },
-        ]
+        ])
 
-        model = genai.GenerativeModel(model_name="gemini-1.0-pro",
+        model = genai.GenerativeModel(model_name=model_name,
                                       generation_config=generation_config,
                                       safety_settings=safety_settings)
         prompt_parts = [
             prompt
         ]
         response = model.generate_content(prompt_parts)
-        print(response)
         return {
             'success': True,
-            'data': response
+            'data': response.text
         }
     except Exception as e:
         m = str(e)
