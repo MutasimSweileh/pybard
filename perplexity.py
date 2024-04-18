@@ -31,7 +31,7 @@ class CustomException(Exception):
 
 
 class Perplexity:
-    def __init__(self, cookies: str = None, email: str = None) -> None:
+    def __init__(self, cookies: str = None, email: str = None, debug=False) -> None:
         self.session: Session = Session()
         self.csrfToken = None
         self.isLogin = False
@@ -44,6 +44,7 @@ class Perplexity:
         self.session = self.get_session()
         self.ws = None
         self.last_message = None
+        self.debug = debug
 
         self.n: int = 1
         self.base: int = 420
@@ -95,8 +96,8 @@ class Perplexity:
     def get_session(self) -> Session:
         self.session = Session()
         self.session = cloudscraper.create_scraper(
-            debug=False,
-            delay=30,
+            debug=self.debug,
+            delay=20,
             browser={
                 'browser': 'chrome',
                 'platform': 'ios',
@@ -259,7 +260,9 @@ class Perplexity:
                         self.finished = True
                 elif message.startswith("43"):
                     message: dict = loads(message[3:])[0]
-                    if ("uuid" in message and message["uuid"] != self.last_uuid) or "uuid" not in message:
+                    if message["step_type"] == "PROMPT_INPUT":
+                        self.prompt_input(content)
+                    elif ("uuid" in message and message["uuid"] != self.last_uuid) or "uuid" not in message:
                         self.queue.append(message)
                         self.finished = True
 
@@ -271,6 +274,100 @@ class Perplexity:
             on_message=on_message,
             on_error=lambda ws, err: print(f"websocket error: {err}")
         )
+
+    def prompt_input(self, _last_answer, solvers={}):
+        query = _last_answer["query_str"]
+        self.backend_uuid = _last_answer['backend_uuid']
+        focus = _last_answer['search_focus']
+        for step_query in _last_answer['text'][-1]['content']['inputs']:
+            if step_query['type'] == 'PROMPT_TEXT':
+                solver = solvers.get('text', None)
+                if solver:
+                    self.ws.send(f'{self.base + self.n}' + json.dumps([
+                        'perplexity_step',
+                        query,
+                        {
+                            'version': '2.1',
+                            'source': 'default',
+                            'attachments': _last_answer['attachments'],
+                            'last_backend_uuid': self.backend_uuid,
+                            'existing_entry_uuid': self.backend_uuid,
+                            'read_write_token': '',
+                            'search_focus': focus,
+                            'frontend_uuid': self.frontend_session_id,
+                            'step_payload': {
+                                'uuid': str(uuid4()),
+                                'step_type': 'USER_INPUT',
+                                'content': [{'content': {'text': solver(step_query['content']['description'])[:2000]}, 'type': 'USER_TEXT', 'uuid': step_query['uuid']}]
+                            }
+                        }
+                    ]))
+                else:
+                    self.ws.send(f'{self.base + self.n}' + json.dumps([
+                        'perplexity_step',
+                        query,
+                        {
+                            'version': '2.1',
+                            'source': 'default',
+                            'attachments': _last_answer['attachments'],
+                            'last_backend_uuid': self.backend_uuid,
+                            'existing_entry_uuid': self.backend_uuid,
+                            'read_write_token': '',
+                            'search_focus': focus,
+                            'frontend_uuid': self.frontend_session_id,
+                            'step_payload': {
+                                'uuid': str(uuid4()),
+                                'step_type': 'USER_SKIP',
+                                'content': [{'content': {'text': 'Skipped'}, 'type': 'USER_TEXT', 'uuid': step_query['uuid']}]
+                            }
+                        }
+                    ]))
+
+            if step_query['type'] == 'PROMPT_CHECKBOX':
+                solver = solvers.get('checkbox', None)
+                if solver:
+                    solver_answer = solver(step_query['content']['description'], {int(
+                        x['id']): x['value'] for x in step_query['content']['options']})
+
+                    self.ws.send(f'{self.base + self.n}' + json.dumps([
+                        'perplexity_step',
+                        query,
+                        {
+                            'version': '2.1',
+                            'source': 'default',
+                            'attachments': _last_answer['attachments'],
+                            'last_backend_uuid': self.backend_uuid,
+                            'existing_entry_uuid': self.backend_uuid,
+                            'read_write_token': '',
+                            'search_focus': focus,
+                            'frontend_uuid': self.frontend_session_id,
+                            'step_payload': {
+                                'uuid': str(uuid4()),
+                                'step_type': 'USER_INPUT',
+                                'content': [{'content': {'options': [x for x in step_query['content']['options'] if int(x['id']) in solver_answer]}, 'type': 'USER_CHECKBOX', 'uuid': step_query['uuid']}]
+                            }
+                        }
+                    ]))
+                else:
+                    self.ws.send(f'{self.base + self.n}' + json.dumps([
+                        'perplexity_step',
+                        query,
+                        {
+                            'version': '2.1',
+                            'source': 'default',
+                            'attachments': _last_answer['attachments'],
+                            'last_backend_uuid': self.backend_uuid,
+                            'existing_entry_uuid': self.backend_uuid,
+                            'read_write_token': '',
+                            'search_focus': focus,
+                            'frontend_uuid': self.frontend_session_id,
+                            'step_payload': {
+                                'uuid': str(uuid4()),
+                                'step_type': 'USER_SKIP',
+                                'content': [{'content': {'options': []}, 'type': 'USER_CHECKBOX', 'uuid': step_query['uuid']}]
+                            }
+                        }
+                    ]))
 
     def _s(self, query: str, mode: str = "concise", focus: str = "internet", attachments: list[str] = [], language: str = "en-GB", in_page: str = None, in_domain: str = None) -> None:
 
@@ -476,7 +573,7 @@ class Perplexity:
 # email = "pefecu.jiyujori@theglossylocks.com"
 # email = "wu.matarice@everysimply.com"
 # cookies = "eyJBV1NBTEIiOiJcL3BYbWNMRWN6TmQ1cHhsQjI5NTdTT3M0REUzNUJYd2FKTVwvSSs4RCttbHF1WlJZd3dtR1JLandrT2N3TXYzNmxENldvVkxOa3pxc0x0THJWSUo1bFg4N2IzZCszSkM4XC9UYVdHcUNadWdSeU84UFhDTXZUT1JDWFVLck90RTZKTkxLZ2tzQkVSMkhmWllab3hwWWNzSEVoWXREam80MlJlTWltQ2xsMTZKdm1VZTN6SHFtcVwvWENEek5VcWlIdz09IiwiQVdTQUxCQ09SUyI6IlwvcFhtY0xFY3pOZDVweGxCMjk1N1NPczRERTM1Qlh3YUpNXC9JKzhEK21scXVaUll3d21HUktqd2tPY3dNdjM2bEQ2V29WTE5renFzTHRMclZJSjVsWDg3YjNkKzNKQzhcL1RhV0dxQ1p1Z1J5TzhQWENNdlRPUkNYVUtyT3RFNkpOTEtna3NCRVIySGZaWVpveHBZY3NIRWhZdERqbzQyUmVNaW1DbGwxNkp2bVVlM3pIcW1xXC9YQ0R6TlVxaUh3PT0iLCJfX1NlY3VyZS1uZXh0LWF1dGguY2FsbGJhY2stdXJsIjoiaHR0cHMlM0ElMkYlMkZ3d3cucGVycGxleGl0eS5haSUyRmFwaSUyRmF1dGglMkZzaWduaW4tY2FsbGJhY2slM0ZyZWRpcmVjdCUzRGRlZmF1bHRNb2JpbGVTaWduSW4iLCJfX1NlY3VyZS1uZXh0LWF1dGguc2Vzc2lvbi10b2tlbiI6ImV5SmhiR2NpT2lKa2FYSWlMQ0psYm1NaU9pSkJNalUyUjBOTkluMC4uX1IxZ09yTEJRZjFEcHlUMS45MzR3NzRzYlg5WkxxM1N2aDRXbzRmQ3V4RVJxTjgxMFlJdHFMdUxOblhmSnA1NjdvNGZYZ0I1TDhPUUdIbVdXS0hlY3I3ZFJfbU1wVFhJQV9FcFd2X3dkSXJOb0ZoeXZod1I0VEFSQTFJV1ZKRmhrdUlEbmduNWthV0l0ZC1hY0pVV25HMWZ6dHlDVHJNeHNYRUw4dXRvcG92dUxuVjRKQXREV29Yc29TRllfT2lWVDlhUlhqUW5oQlFhM2I0NERhdEpIVS1RVFVDdFlQMkxzNnRrVGFMRFEzUS5Udi0zeG56M3pTNklyWlVaOHVNdkN3IiwiX19jZl9ibSI6Ijh3WWRkZkRQVnhPUWIuQzBDVTFSQkxYemdYMVJkNDFCcmRnNUtEVEM2Tm8tMTcxMzQ0ODE1MC0xLjAuMS4xLUVRc0FwNTNzZVYwZklxbmJ6RGFxRjdUZlVwLlYwR1NYQ2pNWUpLbTJwcnpVRFJzNzVWN194bHo3NUNYYVZHel85Ql9HXzg1RzNZUzgwRlZZYmRrYlZnIiwiX19jZmxiIjoiMDJEaXVEeXZGTW1LNXA5alZiVm5NTlNLWVpoVUw5YUdtSjVabTFEQWhSY244IiwibmV4dC1hdXRoLmNzcmYtdG9rZW4iOiI2ZDU4ZWM0ZjIzZDMyMmZkODIyOTIyNGUzZGU0NmRmNzc1NzI5NWJiM2VmNTVjOTVlYmU5NDExODFjOGQzNjQyJTdDZjhjOTYyMWY1NmYwNjRjZjFmYTE4ZDNlZDA2Yjg2ZWY5MzBhM2ViNWJiMzhmNThlNGNkZWQ2YTM0Mzg1MjExMiJ9"
-# cookies = None
+# # cookies = None
 # # email = None
 # perplexity = Perplexity(email=email, cookies=cookies)
 # answer = perplexity.search_sync("how to take a screenshot?", "copilot")
