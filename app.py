@@ -84,7 +84,7 @@ def request():
 @app.route("/perplexity", methods=['POST', 'GET'])
 @auth.login_required
 def perplexity():
-    data = {**request.form, **request.args}
+    data = {**rq.form, **rq.args}
     sessionKey = data.get("sessionKey", None)
     conversationId = data.get("conversationId", None)
     focus = data.get("focus", "internet")
