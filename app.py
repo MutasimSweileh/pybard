@@ -39,7 +39,7 @@ def request():
         headers = {}
         for v in r:
             v = str(v).split(":")
-            headers[v[0]] = v[1]
+            headers[v[0].strip()] = v[1].strip()
             return headers
     headers = fix_head(headers)
     j = headers.get("Content-Type", None)
