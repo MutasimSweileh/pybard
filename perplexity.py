@@ -32,19 +32,19 @@ class CustomException(Exception):
 
 class Perplexity:
     def __init__(self, cookies: str = None, email: str = None, debug=False) -> None:
-        self.session: Session = Session()
+        # self.session: Session = Session()
         self.csrfToken = None
         self.isLogin = False
         self.email: str = email
         self.user_agent: dict = {
             "User-Agent": "Ask/2.4.1/224 (iOS; iPhone; Version 17.1) isiOSOnMac/false", "X-Client-Name": "Perplexity-iOS"}
-        self.session.headers.update(self.user_agent)
+        # self.session.headers.update(self.user_agent)
         self.cookies = self.convert_session(cookies)
         self.row_cookies = self.cookies
+        self.debug = debug
         self.session = self.get_session()
         self.ws = None
         self.last_message = None
-        self.debug = debug
 
         self.n: int = 1
         self.base: int = 420
