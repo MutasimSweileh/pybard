@@ -13,6 +13,9 @@ from websocket import WebSocketApp
 from requests import Session, get, post
 import cloudscraper
 
+from dotenv import load_dotenv
+load_dotenv()
+
 
 class CustomException(Exception):
     def __init__(self, message):
@@ -74,17 +77,9 @@ class Perplexity:
                         f'Perplexity account creating error: Error triggering email sign in')
             except Exception as e:
                 raise Exception(str(e))
-        try:
-            self.t: str = self._get_t()
-            self.sid: str = self._get_sid()
-            j = self._ask_anonymous_user()
-            if not j:
-                raise Exception(
-                    "invalid session")
-        except Exception as e:
-            m = str(e)
-            m = f"{m}"
-            raise Exception(m)
+        self.t: str = self._get_t()
+        self.sid: str = self._get_sid()
+        self._ask_anonymous_user()
 
         self.ws: WebSocketApp = self._init_websocket()
         self.ws_thread: Thread = Thread(target=self.ws.run_forever).start()
@@ -97,7 +92,7 @@ class Perplexity:
     def get_session(self) -> Session:
         self.session = Session()
         self.session = cloudscraper.create_scraper(
-            debug=True,
+            debug=False,
             delay=30,
             browser={
                 'browser': 'chrome',
@@ -178,7 +173,10 @@ class Perplexity:
         self.session.headers.update(self.user_agent)
 
     def _auth_session(self) -> None:
-        self.session.get(url="https://www.perplexity.ai/api/auth/session")
+        re = self.session.get(url="https://www.perplexity.ai/api/auth/session")
+        if re.status_code == 200:
+            return re.json()
+        return False
 
     def _get_t(self) -> str:
         return format(getrandbits(32), "08x")
@@ -188,7 +186,8 @@ class Perplexity:
             url=f"https://www.perplexity.ai/socket.io/?EIO=4&transport=polling&t={self.t}"
         )
         if re.status_code != 200:
-            raise Exception("Cloudflare's anti-bot")
+            raise Exception(
+                "invalid session")
         return loads(re.text[1:])["sid"]
 
     def _ask_anonymous_user(self) -> bool:
@@ -196,8 +195,10 @@ class Perplexity:
             url=f"https://www.perplexity.ai/socket.io/?EIO=4&transport=polling&t={self.t}&sid={self.sid}",
             data="40{\"jwt\":\"anonymous-ask-user\"}"
         ).text
-
-        return response == "OK"
+        if response != "OK":
+            raise Exception(
+                "invalid session")
+        return True
 
     def _start_interaction(self) -> None:
         self.finished = False
@@ -472,8 +473,8 @@ class Perplexity:
 # email = "pefecu.jiyujori@theglossylocks.com"
 # email = "wu.matarice@everysimply.com"
 # cookies = "eyJBV1NBTEIiOiJcL3BYbWNMRWN6TmQ1cHhsQjI5NTdTT3M0REUzNUJYd2FKTVwvSSs4RCttbHF1WlJZd3dtR1JLandrT2N3TXYzNmxENldvVkxOa3pxc0x0THJWSUo1bFg4N2IzZCszSkM4XC9UYVdHcUNadWdSeU84UFhDTXZUT1JDWFVLck90RTZKTkxLZ2tzQkVSMkhmWllab3hwWWNzSEVoWXREam80MlJlTWltQ2xsMTZKdm1VZTN6SHFtcVwvWENEek5VcWlIdz09IiwiQVdTQUxCQ09SUyI6IlwvcFhtY0xFY3pOZDVweGxCMjk1N1NPczRERTM1Qlh3YUpNXC9JKzhEK21scXVaUll3d21HUktqd2tPY3dNdjM2bEQ2V29WTE5renFzTHRMclZJSjVsWDg3YjNkKzNKQzhcL1RhV0dxQ1p1Z1J5TzhQWENNdlRPUkNYVUtyT3RFNkpOTEtna3NCRVIySGZaWVpveHBZY3NIRWhZdERqbzQyUmVNaW1DbGwxNkp2bVVlM3pIcW1xXC9YQ0R6TlVxaUh3PT0iLCJfX1NlY3VyZS1uZXh0LWF1dGguY2FsbGJhY2stdXJsIjoiaHR0cHMlM0ElMkYlMkZ3d3cucGVycGxleGl0eS5haSUyRmFwaSUyRmF1dGglMkZzaWduaW4tY2FsbGJhY2slM0ZyZWRpcmVjdCUzRGRlZmF1bHRNb2JpbGVTaWduSW4iLCJfX1NlY3VyZS1uZXh0LWF1dGguc2Vzc2lvbi10b2tlbiI6ImV5SmhiR2NpT2lKa2FYSWlMQ0psYm1NaU9pSkJNalUyUjBOTkluMC4uX1IxZ09yTEJRZjFEcHlUMS45MzR3NzRzYlg5WkxxM1N2aDRXbzRmQ3V4RVJxTjgxMFlJdHFMdUxOblhmSnA1NjdvNGZYZ0I1TDhPUUdIbVdXS0hlY3I3ZFJfbU1wVFhJQV9FcFd2X3dkSXJOb0ZoeXZod1I0VEFSQTFJV1ZKRmhrdUlEbmduNWthV0l0ZC1hY0pVV25HMWZ6dHlDVHJNeHNYRUw4dXRvcG92dUxuVjRKQXREV29Yc29TRllfT2lWVDlhUlhqUW5oQlFhM2I0NERhdEpIVS1RVFVDdFlQMkxzNnRrVGFMRFEzUS5Udi0zeG56M3pTNklyWlVaOHVNdkN3IiwiX19jZl9ibSI6Ijh3WWRkZkRQVnhPUWIuQzBDVTFSQkxYemdYMVJkNDFCcmRnNUtEVEM2Tm8tMTcxMzQ0ODE1MC0xLjAuMS4xLUVRc0FwNTNzZVYwZklxbmJ6RGFxRjdUZlVwLlYwR1NYQ2pNWUpLbTJwcnpVRFJzNzVWN194bHo3NUNYYVZHel85Ql9HXzg1RzNZUzgwRlZZYmRrYlZnIiwiX19jZmxiIjoiMDJEaXVEeXZGTW1LNXA5alZiVm5NTlNLWVpoVUw5YUdtSjVabTFEQWhSY244IiwibmV4dC1hdXRoLmNzcmYtdG9rZW4iOiI2ZDU4ZWM0ZjIzZDMyMmZkODIyOTIyNGUzZGU0NmRmNzc1NzI5NWJiM2VmNTVjOTVlYmU5NDExODFjOGQzNjQyJTdDZjhjOTYyMWY1NmYwNjRjZjFmYTE4ZDNlZDA2Yjg2ZWY5MzBhM2ViNWJiMzhmNThlNGNkZWQ2YTM0Mzg1MjExMiJ9"
-# cookies = None
-# email = None
+# # cookies = None
+# # email = None
 # perplexity = Perplexity(email=email, cookies=cookies)
 # answer = perplexity.search_sync("how to take a screenshot?", "copilot")
 # print(answer)
