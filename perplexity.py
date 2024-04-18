@@ -13,9 +13,6 @@ from websocket import WebSocketApp
 from requests import Session, get, post
 import cloudscraper
 
-from dotenv import load_dotenv
-load_dotenv()
-
 
 class CustomException(Exception):
     def __init__(self, message):

@@ -8,6 +8,9 @@ from werkzeug.security import generate_password_hash, check_password_hash
 import requests
 import cloudscraper
 
+from dotenv import load_dotenv
+load_dotenv()
+
 app = Flask(__name__)
 
 auth = HTTPBasicAuth()
