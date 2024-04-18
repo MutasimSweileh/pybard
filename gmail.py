@@ -22,12 +22,12 @@ class Emailnator:
         self.google_mail = google_mail
         self.email = None
         # create session with provided headers & cookies
-        # self.s = requests.Session()
-        self.s = tls_client.Session(
-            client_identifier="chrome112",
-            random_tls_extension_order=True,
-            debug=False
-        )
+        self.s = requests.Session()
+        # self.s = tls_client.Session(
+        #     client_identifier="chrome112",
+        #     random_tls_extension_order=True,
+        #     debug=False
+        # )
 
     def getTempEmail(self, args={}):
         domain = args.get("domain", self.domain)
