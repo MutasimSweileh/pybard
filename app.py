@@ -24,7 +24,11 @@ def verify_password(username, password):
 @app.route("/request", methods=['POST', 'GET'])
 @auth.login_required
 def request():
-    data = rq.get_json()
+    data = {}
+    try:
+        data = json.loads(rq.data, strict=False)
+    except:
+        pass
     data = {**rq.form, **rq.args, **data}
     url = data.get("url", None)
     headers = data.get("headers", {})
@@ -60,7 +64,11 @@ def request():
 @app.route("/bard", methods=['POST', 'GET'])
 @auth.login_required
 def bard():
-    data = rq.get_json()
+    data = {}
+    try:
+        data = json.loads(rq.data, strict=False)
+    except:
+        pass
     data = {**rq.form, **rq.args, **data}
     bard = ai_bard(data)
     return jsonify(bard)
