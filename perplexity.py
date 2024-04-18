@@ -95,23 +95,23 @@ class Perplexity:
 
     def get_session(self) -> Session:
         self.session = Session()
-        self.session = cloudscraper.create_scraper(
-            debug=self.debug,
-            delay=20,
-            browser={
-                'browser': 'chrome',
-                'platform': 'ios',
-                'desktop': False
-            },
-            interpreter='js2py',
-            allow_brotli=False,
-            captcha={
-                'provider': '2captcha',
-                'api_key': os.getenv("TwoCaptcha_API_KEY")
-            }
-        )
-        self.user_agent["User-Agent"] = self.session.headers.get("User-Agent")
-        # self.session.headers.update(self.user_agent)
+        # self.session = cloudscraper.create_scraper(
+        #     debug=self.debug,
+        #     delay=20,
+        #     browser={
+        #         'browser': 'chrome',
+        #         'platform': 'ios',
+        #         'desktop': False
+        #     },
+        #     interpreter='js2py',
+        #     allow_brotli=False,
+        #     captcha={
+        #         'provider': '2captcha',
+        #         'api_key': os.getenv("TwoCaptcha_API_KEY")
+        #     }
+        # )
+        # self.user_agent["User-Agent"] = self.session.headers.get("User-Agent")
+        self.session.headers.update(self.user_agent)
         try:
             if self.cookies:
                 self.csrfToken = self.cookies.get(
