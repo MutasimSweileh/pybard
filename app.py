@@ -1,6 +1,5 @@
 import json
 import os
-import google.generativeai as genai
 from flask import Flask, jsonify, make_response, request as rq
 from flask_httpauth import HTTPBasicAuth
 import perplexity as perplexityapi
@@ -98,69 +97,6 @@ def perplexity():
             **e.getJSON()
         }
     return jsonify(data)
-
-
-@app.route("/bard", methods=['POST', 'GET'])
-@auth.login_required
-def bard():
-    data = {}
-    try:
-        data = json.loads(rq.data, strict=False)
-    except:
-        pass
-    data = {**rq.form, **rq.args, **data}
-    bard = ai_bard(data)
-    return jsonify(bard)
-
-
-def ai_bard(data):
-    key = data.get("key")
-    model_name = data.get("model", "gemini-1.5-pro-latest")
-    prompt = data.get("prompt", None)
-    try:
-        genai.configure(api_key=key)
-        generation_config = data.get("generation_config", {
-            "temperature": 0.9,
-            "top_p": 1,
-            "top_k": 1,
-            "max_output_tokens": 2048,
-        })
-        safety_settings = data.get("safety_settings", [
-            {
-                "category": "HARM_CATEGORY_HARASSMENT",
-                "threshold": "BLOCK_MEDIUM_AND_ABOVE"
-            },
-            {
-                "category": "HARM_CATEGORY_HATE_SPEECH",
-                "threshold": "BLOCK_MEDIUM_AND_ABOVE"
-            },
-            {
-                "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-                "threshold": "BLOCK_MEDIUM_AND_ABOVE"
-            },
-            {
-                "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
-                "threshold": "BLOCK_MEDIUM_AND_ABOVE"
-            },
-        ])
-
-        model = genai.GenerativeModel(model_name=model_name,
-                                      generation_config=generation_config,
-                                      safety_settings=safety_settings)
-        prompt_parts = [
-            prompt
-        ]
-        response = model.generate_content(prompt_parts)
-        return {
-            'success': True,
-            'data': response.text
-        }
-    except Exception as e:
-        m = str(e)
-        return {
-            'success': False,
-            'error': m
-        }
 
 
 @app.errorhandler(404)
