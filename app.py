@@ -5,9 +5,8 @@ from flask import Flask, jsonify, make_response, request as rq
 from flask_httpauth import HTTPBasicAuth
 import perplexity as perplexityapi
 from werkzeug.security import generate_password_hash, check_password_hash
-import requests
 import cloudscraper
-
+from curl_cffi.requests import Session, WebSocket, get, post
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -38,6 +37,7 @@ def request():
         pass
     data = {**rq.form, **rq.args, **data}
     url = data.get("url", None)
+    brower = data.get("brower", "chrome")
     headers = data.get("headers", {})
     d = data.get("data", None)
     method = data.get("method", "POST" if d else "GET")
@@ -54,25 +54,13 @@ def request():
     if j and j.find("json") != -1:
         d = json.dumps(d)
     try:
-        session = cloudscraper.create_scraper(
-            debug=False,
-            delay=10,
-            browser={
-                'browser': 'chrome',
-                'platform': 'ios',
-                'desktop': False
-            },
-            interpreter='js2py',
-            allow_brotli=False,
-            captcha={
-                'provider': '2captcha',
-                'api_key': os.getenv("TwoCaptcha_API_KEY")
-            }
-        )
-        headers = {**session.headers, **headers}
-        response = session.request(method, url, headers=headers, data=d)
+        session = Session()
+        # headers = {**session.headers.items(), **headers}
+        response = session.request(
+            method, url, headers=headers, data=d, impersonate=brower)
         d = {
             'success': True,
+            "status_code": response.status_code,
             'data': response.text
         }
     except Exception as e:
