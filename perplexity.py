@@ -12,7 +12,8 @@ from random import getrandbits
 from websocket import WebSocketApp
 from requests import Session, get, post
 import cloudscraper
-
+import undetected_chromedriver as uc
+from selenium.webdriver.common.by import By
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -30,14 +31,38 @@ class CustomException(Exception):
         return self.getJSON()['message']
 
 
+class CustomUCWebDriver(uc.Chrome):
+    def post(self, url, data):
+        return self.execute_script(f"""
+            return fetch("{url}", {{
+                method: "POST",
+                body: '{data}',
+                headers: {{
+                    "Content-Type": "text/plain;charset=UTF-8"
+                }}
+            }})
+            .then(response => response.text());
+        """)
+
+    def user_agent(self):
+        # window.navigator.userAgent
+        return self.execute_script("return window.navigator.userAgent;")
+
+
 class Perplexity:
-    def __init__(self, cookies: str = None, email: str = None, debug=False) -> None:
+    def __init__(self, cookies: str = None, email: str = None, debug=False, use_driver=False) -> None:
         # self.session: Session = Session()
         self.csrfToken = None
+        self.driver = None
         self.isLogin = False
         self.email: str = email
+        self.use_driver = use_driver
+        self.d_cookies = None
         self.user_agent: dict = {
             "User-Agent": "Ask/2.4.1/224 (iOS; iPhone; Version 17.1) isiOSOnMac/false", "X-Client-Name": "Perplexity-iOS"}
+        self.user_agent = {
+            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/50.0.2661.102 Safari/537.36"
+        }
         # self.session.headers.update(self.user_agent)
         self.cookies = self.convert_session(cookies)
         self.row_cookies = self.cookies
@@ -55,8 +80,41 @@ class Perplexity:
         self.frontend_session_id: str = str(uuid4())
         self.tmpEmail = temp_mail(email, create=True)
 
+    def get_driver(self, url):
+        if not self.driver:
+            chrome_options = uc.ChromeOptions()
+            user_agent = self.user_agent["User-Agent"]
+            chrome_options.add_argument(f"--user-agent={user_agent}")
+            self.driver = CustomUCWebDriver(
+                headless=True, use_subprocess=False, options=chrome_options)
+        self.driver.get(url)
+        return self.driver.find_element(By.TAG_NAME, 'body').text
+
+    def driver_cookies(self):
+        cookies = {}
+        co = self.driver.get_cookies()
+        self.d_cookies = co
+        for c in co:
+            cookies[c["name"]] = c["value"]
+        return cookies
+
+    def _get_cookies(self, di=False):
+        if self.use_driver and self.d_cookies:
+            cookies = {}
+            for c in self.d_cookies:
+                cookies[c["name"]] = c["value"]
+            if di:
+                return cookies
+            return self.d_cookies
+        return self.session.cookies.get_dict()
+
+    def close_driver(self):
+        if self.driver:
+            self.driver.close()
+            self.driver = None
+
     def create_account(self):
-        if not self.isLogin and self.email:
+        if not self.isLogin and self.email and not self.use_driver:
             self.copilot = 5
             self.file_upload = 3
             try:
@@ -95,30 +153,29 @@ class Perplexity:
 
     def get_session(self) -> Session:
         self.session = Session()
-        # self.session = cloudscraper.create_scraper(
-        #     debug=self.debug,
-        #     delay=20,
-        #     browser={
-        #         'browser': 'chrome',
-        #         'platform': 'ios',
-        #         'desktop': False
-        #     },
-        #     interpreter='js2py',
-        #     allow_brotli=False,
-        #     captcha={
-        #         'provider': '2captcha',
-        #         'api_key': os.getenv("TwoCaptcha_API_KEY")
-        #     }
-        # )
-        # self.user_agent["User-Agent"] = self.session.headers.get("User-Agent")
         self.session.headers.update(self.user_agent)
+        self.session = cloudscraper.create_scraper(
+            sess=self.session,
+            debug=self.debug,
+            delay=20,
+            interpreter='js2py',
+            captcha={
+                'provider': '2captcha',
+                'api_key': os.getenv("TwoCaptcha_API_KEY")
+            }
+        )
         try:
             if self.cookies:
-                self.csrfToken = self.cookies.get(
+                # del self.cookies["__Secure-next-auth.callback-url"]
+                cookies = {}
+                if type(self.cookies) is list:
+                    for c in self.cookies:
+                        cookies[c["name"]] = c["value"]
+                else:
+                    cookies = self.cookies
+                self.session.cookies.update(cookies)
+                self.csrfToken = cookies.get(
                     "next-auth.csrf-token", self.csrfToken)
-                del self.cookies["__Secure-next-auth.callback-url"]
-                self.session.cookies.update(self.cookies)
-
             if not self._auth_session():
                 self.isLogin = False
                 self._init_session_without_login()
@@ -141,7 +198,7 @@ class Perplexity:
         except:
             pass
         try:
-            if cookies and type(cookies) is not dict:
+            if cookies and type(cookies) is str:
                 cookies = json.loads(cookies)
         except Exception as e:
             raise CustomException("Invalid session!")
@@ -172,9 +229,19 @@ class Perplexity:
             f.write(dumps(ps))
 
     def _init_session_without_login(self) -> None:
-        self.session.get(
-            url=f"https://www.perplexity.ai/search/{str(uuid4())}")
-        self.session.headers.update(self.user_agent)
+        url = f"https://www.perplexity.ai/search/{str(uuid4())}"
+        if not self.use_driver:
+            re = self.session.get(
+                url=url)
+            print(re.status_code)
+        else:
+            self.get_driver(url)
+            self.session.cookies.update(self.driver_cookies())
+            user_agent = self.driver.user_agent()
+            self.user_agent = {
+                "User-Agent": user_agent}
+            # print(self.user_agent)
+            self.session.headers.update(self.user_agent)
 
     def _auth_session(self) -> None:
         re = self.session.get(url="https://www.perplexity.ai/api/auth/session")
@@ -186,19 +253,31 @@ class Perplexity:
         return format(getrandbits(32), "08x")
 
     def _get_sid(self) -> str:
-        re = self.session.get(
-            url=f"https://www.perplexity.ai/socket.io/?EIO=4&transport=polling&t={self.t}"
-        )
-        if re.status_code != 200:
-            raise Exception(
-                "invalid session")
-        return loads(re.text[1:])["sid"]
+        if self.use_driver:
+            j = self.get_driver(
+                f"https://www.perplexity.ai/socket.io/?EIO=4&transport=polling&t={self.t}")
+        else:
+            re = self.session.get(
+                url=f"https://www.perplexity.ai/socket.io/?EIO=4&transport=polling&t={self.t}"
+            )
+            j = re.text
+            if re.status_code != 200:
+                raise Exception(
+                    "invalid session")
+        return loads(j[1:])["sid"]
 
     def _ask_anonymous_user(self) -> bool:
-        response = self.session.post(
-            url=f"https://www.perplexity.ai/socket.io/?EIO=4&transport=polling&t={self.t}&sid={self.sid}",
-            data="40{\"jwt\":\"anonymous-ask-user\"}"
-        ).text
+        if self.use_driver:
+            response = self.driver.post(
+                f"https://www.perplexity.ai/socket.io/?EIO=4&transport=polling&t={self.t}&sid={self.sid}", "40{\"jwt\":\"anonymous-ask-user\"}")
+            cookies = self.driver_cookies()
+            self.session.cookies.update(cookies)
+            self.close_driver()
+        else:
+            response = self.session.post(
+                url=f"https://www.perplexity.ai/socket.io/?EIO=4&transport=polling&t={self.t}&sid={self.sid}",
+                data="40{\"jwt\":\"anonymous-ask-user\"}"
+            ).text
         if response != "OK":
             raise Exception(
                 "invalid session")
@@ -559,6 +638,7 @@ class Perplexity:
     def close(self) -> None:
         if self.ws:
             self.ws.close()
+        self.close_driver()
 
         # if self.email:
         #     with open(".perplexity_session", "r") as f:
@@ -573,11 +653,26 @@ class Perplexity:
 # email = "pefecu.jiyujori@theglossylocks.com"
 # email = "wu.matarice@everysimply.com"
 # cookies = "eyJBV1NBTEIiOiJcL3BYbWNMRWN6TmQ1cHhsQjI5NTdTT3M0REUzNUJYd2FKTVwvSSs4RCttbHF1WlJZd3dtR1JLandrT2N3TXYzNmxENldvVkxOa3pxc0x0THJWSUo1bFg4N2IzZCszSkM4XC9UYVdHcUNadWdSeU84UFhDTXZUT1JDWFVLck90RTZKTkxLZ2tzQkVSMkhmWllab3hwWWNzSEVoWXREam80MlJlTWltQ2xsMTZKdm1VZTN6SHFtcVwvWENEek5VcWlIdz09IiwiQVdTQUxCQ09SUyI6IlwvcFhtY0xFY3pOZDVweGxCMjk1N1NPczRERTM1Qlh3YUpNXC9JKzhEK21scXVaUll3d21HUktqd2tPY3dNdjM2bEQ2V29WTE5renFzTHRMclZJSjVsWDg3YjNkKzNKQzhcL1RhV0dxQ1p1Z1J5TzhQWENNdlRPUkNYVUtyT3RFNkpOTEtna3NCRVIySGZaWVpveHBZY3NIRWhZdERqbzQyUmVNaW1DbGwxNkp2bVVlM3pIcW1xXC9YQ0R6TlVxaUh3PT0iLCJfX1NlY3VyZS1uZXh0LWF1dGguY2FsbGJhY2stdXJsIjoiaHR0cHMlM0ElMkYlMkZ3d3cucGVycGxleGl0eS5haSUyRmFwaSUyRmF1dGglMkZzaWduaW4tY2FsbGJhY2slM0ZyZWRpcmVjdCUzRGRlZmF1bHRNb2JpbGVTaWduSW4iLCJfX1NlY3VyZS1uZXh0LWF1dGguc2Vzc2lvbi10b2tlbiI6ImV5SmhiR2NpT2lKa2FYSWlMQ0psYm1NaU9pSkJNalUyUjBOTkluMC4uX1IxZ09yTEJRZjFEcHlUMS45MzR3NzRzYlg5WkxxM1N2aDRXbzRmQ3V4RVJxTjgxMFlJdHFMdUxOblhmSnA1NjdvNGZYZ0I1TDhPUUdIbVdXS0hlY3I3ZFJfbU1wVFhJQV9FcFd2X3dkSXJOb0ZoeXZod1I0VEFSQTFJV1ZKRmhrdUlEbmduNWthV0l0ZC1hY0pVV25HMWZ6dHlDVHJNeHNYRUw4dXRvcG92dUxuVjRKQXREV29Yc29TRllfT2lWVDlhUlhqUW5oQlFhM2I0NERhdEpIVS1RVFVDdFlQMkxzNnRrVGFMRFEzUS5Udi0zeG56M3pTNklyWlVaOHVNdkN3IiwiX19jZl9ibSI6Ijh3WWRkZkRQVnhPUWIuQzBDVTFSQkxYemdYMVJkNDFCcmRnNUtEVEM2Tm8tMTcxMzQ0ODE1MC0xLjAuMS4xLUVRc0FwNTNzZVYwZklxbmJ6RGFxRjdUZlVwLlYwR1NYQ2pNWUpLbTJwcnpVRFJzNzVWN194bHo3NUNYYVZHel85Ql9HXzg1RzNZUzgwRlZZYmRrYlZnIiwiX19jZmxiIjoiMDJEaXVEeXZGTW1LNXA5alZiVm5NTlNLWVpoVUw5YUdtSjVabTFEQWhSY244IiwibmV4dC1hdXRoLmNzcmYtdG9rZW4iOiI2ZDU4ZWM0ZjIzZDMyMmZkODIyOTIyNGUzZGU0NmRmNzc1NzI5NWJiM2VmNTVjOTVlYmU5NDExODFjOGQzNjQyJTdDZjhjOTYyMWY1NmYwNjRjZjFmYTE4ZDNlZDA2Yjg2ZWY5MzBhM2ViNWJiMzhmNThlNGNkZWQ2YTM0Mzg1MjExMiJ9"
-# # cookies = None
-# # email = None
-# perplexity = Perplexity(email=email, cookies=cookies)
-# answer = perplexity.search_sync("how to take a screenshot?", "copilot")
-# print(answer)
-# for a in answer:
-#     #     print(a)
-# perplexity.close()
+cookies = [{'domain': 'www.perplexity.ai', 'expiry': 1714123777, 'httpOnly': False, 'name': 'AWSALBCORS', 'path': '/', 'sameSite': 'None', 'secure': True, 'value': 'qU/l4kh0+V8n/9Oji0kUCUWqgbJxGqt/kdCVRuO9hV/uxae4H98iwUZRHLQ5yH3mQSi5hr160+0HaYzTdtB/d14DC37mpQ6HPUuhxuaGlqKU9dor4JWz5j64sfUuAfssSNKhtRsqcvrGPcB4BB9pqr11drGEe+Sjd9cM6y4yNXrH8dpeTumwCyxcl2eGCg=='}, {'domain': 'www.perplexity.ai', 'expiry': 1714123777, 'httpOnly': False, 'name': 'AWSALB', 'path': '/', 'sameSite': 'Lax', 'secure': False, 'value': 'qU/l4kh0+V8n/9Oji0kUCUWqgbJxGqt/kdCVRuO9hV/uxae4H98iwUZRHLQ5yH3mQSi5hr160+0HaYzTdtB/d14DC37mpQ6HPUuhxuaGlqKU9dor4JWz5j64sfUuAfssSNKhtRsqcvrGPcB4BB9pqr11drGEe+Sjd9cM6y4yNXrH8dpeTumwCyxcl2eGCg=='}, {'domain': '.perplexity.ai', 'expiry': 1748078966, 'httpOnly': False, 'name': '_ga_SH9PRBQG23', 'path': '/', 'sameSite': 'Lax', 'secure': False, 'value': 'GS1.1.1713518966.1.0.1713518966.0.0.0'}, {'domain': 'www.perplexity.ai', 'expiry': 1745054966, 'httpOnly': False, 'name': 'pplx.visitor-id', 'path': '/', 'sameSite': 'Lax', 'secure': False, 'value': 'a91a8d48-6af5-4ecc-b7ce-423943b3d3ed'}, {'domain': 'www.perplexity.ai', 'expiry': 1748078965, 'httpOnly': False, 'name': 'isCollapsed', 'path': '/', 'sameSite': 'Lax', 'secure': False,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               'value': 'false'}, {'domain': '.perplexity.ai', 'expiry': 1748078966, 'httpOnly': False, 'name': '_ga', 'path': '/', 'sameSite': 'Lax', 'secure': False, 'value': 'GA1.1.646725989.1713518967'}, {'domain': '.perplexity.ai', 'expiry': 1713520765, 'httpOnly': True, 'name': '__cf_bm', 'path': '/', 'sameSite': 'None', 'secure': True, 'value': 'hVbyKqCQsag2E_73ToFMrTsmzs5v0j5lKVqYBAw.7e0-1713518968-1.0.1.1-9wx3AbQdNrg1gcqKt8JcCr0NAwoH9yIVMZlBK2hlycr6ssnJMl9Sxhj9l.j1o5lbwTPyxGuQMvd2sB8A_RY84A'}, {'domain': 'www.perplexity.ai', 'httpOnly': True, 'name': '__Secure-next-auth.callback-url', 'path': '/', 'sameSite': 'Lax', 'secure': True, 'value': 'https%3A%2F%2Fwww.perplexity.ai%2Fapi%2Fauth%2Fsignin-callback%3Fredirect%3Dhttps%253A%252F%252Fwww.perplexity.ai'}, {'domain': 'www.perplexity.ai', 'expiry': 1713601765, 'httpOnly': True, 'name': '__cflb', 'path': '/', 'sameSite': 'None', 'secure': True, 'value': '02DiuDyvFMmK5p9jVbVnMNSKYZhUL9aGmjJHN9qoT8n1z'}, {'domain': 'www.perplexity.ai', 'httpOnly': True, 'name': 'next-auth.csrf-token', 'path': '/', 'sameSite': 'None', 'secure': True, 'value': '34eaf324f385f7198a1f4194d99ea686b3ee15328deb1e8260197eb3e7a1e6c3%7Caf9701678791a68a6e8e5d9b9fd3158905b42f74b0398fe3b068172dc1300a19'}]
+
+
+email = None
+cookies = None
+if __name__ == '__main__':
+    perplexity = Perplexity(email=email, cookies=cookies, use_driver=True)
+    answer = perplexity.search_sync("how to take a screenshot?", "copilot")
+    print(answer)
+    # perplexity.close()
+
+
+# Create an instance of CustomUCWebDriver
+# options = uc.ChromeOptions()
+# options.add_argument("--headless=new")  # for hidden mode
+# driver = CustomUCWebDriver(options=options)
+
+# # Make a POST request and capture the response
+# response_data = driver.post("https://example.com", '{"key": "value"}')
+
+# # Print the response data
+# print(response_data)

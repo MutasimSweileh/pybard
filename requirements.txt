@@ -8,3 +8,4 @@ Js2Py==0.74
 python-dotenv==1.0.0
 websocket-client==1.7.0
 websockets==10.4
+undetected-chromedriver==3.5.5

@@ -91,13 +91,14 @@ def perplexity():
     sessionKey = data.get("sessionKey", None)
     conversationId = data.get("conversationId", None)
     debug = data.get("debug", False)
+    use_driver = data.get("use_driver", False)
     focus = data.get("focus", "internet")
     prompt = data.get("prompt", None)
     mode = data.get("mode", "copilot")
     email = data.get("email", None)
     try:
         perplexity = perplexityapi.Perplexity(
-            cookies=sessionKey, email=email, debug=debug)
+            cookies=sessionKey, email=email, debug=debug, use_driver=use_driver)
         answer = perplexity.search_sync(prompt, mode=mode, focus=focus)
         data = {
             'success': True,
