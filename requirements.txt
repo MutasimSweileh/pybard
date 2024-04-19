@@ -1,6 +1,5 @@
 Flask==2.3.2
 Flask-HTTPAuth==4.8.0
-google-generativeai==0.5.1
 Werkzeug==2.3.6
 gunicorn==22.0.0
 cloudscraper==1.2.71
