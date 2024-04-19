@@ -244,7 +244,8 @@ class Perplexity:
         if not self.use_driver:
             re = self.session.get(
                 url=url, impersonate="chrome")
-            # print(re.status_code)
+            if self.debug:
+                print(re.status_code, re.text)
         else:
             self.get_driver(url)
             self.session.cookies.update(self.driver_cookies())
@@ -683,8 +684,10 @@ email = "wu.matarice@everysimply.com"
 # cookies = {'AWSALB': '3tVrdmNqYBuIbQJX51ZBAHbfg66ZvNagJF88on1eW/j1WjsqrtCkIpKyNXvSTqojDyvs2GCt8RUccw7lRm8tvgDGn4lYAEcjxQI6cwpziAd22840XTRoFYbk1co0HExVvNCz9JErMOFn8Zn7nRuw4ikabZa/YqRWeWIoOXz7v1IpX7bZHpa1IcuKDVfFlw==', 'AWSALBCORS': '3tVrdmNqYBuIbQJX51ZBAHbfg66ZvNagJF88on1eW/j1WjsqrtCkIpKyNXvSTqojDyvs2GCt8RUccw7lRm8tvgDGn4lYAEcjxQI6cwpziAd22840XTRoFYbk1co0HExVvNCz9JErMOFn8Zn7nRuw4ikabZa/YqRWeWIoOXz7v1IpX7bZHpa1IcuKDVfFlw==', 'next-auth.csrf-token': '2b13b47612a9ed3bddec1de8659d6b7764e479baee48b00171c08a5b956973bb%7Cc810c6bf74beafd263f715d275d754af29dba7cf113844049feef4be4d5aba4f', '__Secure-next-auth.callback-url': 'https%3A%2F%2Fwww.perplexity.ai%2Fapi%2Fauth%2Fsignin-callback%3Fredirect%3Dhttps%253A%252F%252Fwww.perplexity.ai', '__cflb': '02DiuDyvFMmK5p9jVbVnMNSKYZhUL9aGmEEcFk2EXiVDv', '__cf_bm': 'xVIMi6MRNGNxDnvAl_yZ4Zh3gwhNtsPctE.9Cr3daEs-1713556049-1.0.1.1-4JyyMVAkUg.KPkseJVaPsNYcKcwknh8k1gwtNNZ6Lcupxxj1ppeejHZQmp_sx7DqKP05dxazNpOS26E62YinZA'}
 cookies = {'AWSALB': 'L8o8k2jA+1jzi2jN5nhpjJ6A7YduMOS0jBhnGvV4jg0gAKDB1vqvBsWcQMCOdiqtKpjEcNSBoMHudGwiGdrpofv2PFLWjPCII8DuJtr/JiUkymBNZXWRTDLpZcTeQi6AUtqgE2suw8rZTXrlaZ2Dq6vFqX4/0Q1cXMojXOoei8LyrdSoasxqvv+xUQk3kQ==', 'AWSALBCORS': 'L8o8k2jA+1jzi2jN5nhpjJ6A7YduMOS0jBhnGvV4jg0gAKDB1vqvBsWcQMCOdiqtKpjEcNSBoMHudGwiGdrpofv2PFLWjPCII8DuJtr/JiUkymBNZXWRTDLpZcTeQi6AUtqgE2suw8rZTXrlaZ2Dq6vFqX4/0Q1cXMojXOoei8LyrdSoasxqvv+xUQk3kQ==', 'next-auth.csrf-token': 'd11a7afa594cc323b39542e7ac5640401db13de6c21c3e01d731080556ade6b4%7C1134a842d8d4b64646c07a4d6bbc79003015505c964065990c2527892b364d04', '__Secure-next-auth.callback-url':
            'https%3A%2F%2Fwww.perplexity.ai%2Fapi%2Fauth%2Fsignin-callback%3Fredirect%3DdefaultMobileSignIn', '__cflb': '02DiuDyvFMmK5p9jVbVnMNSKYZhUL9aGmebyqfdFocbvc', '__Secure-next-auth.session-token': 'eyJhbGciOiJkaXIiLCJlbmMiOiJBMjU2R0NNIn0..740gG5RsUme7L_4f.xhKjBL8UcXAI-MIjOa7qGQN0ypFfiKwDlKz3nbMvIzZktYCZ9OY3TgxnrpLXUbImpN7JNHLasY3Nfjn3WUV7KD72nNTaQNd720alX0PujcN67xj7aN6P5J5KYWR99f_wk36UyS1-TZZ_V53hUcRMnBtvrXSZwSk2otE6Qzba3LDwgpVPq8oImYH1x1ftI9QU72l7c_R9Z82JjQxljhgDuG50Tg.jgO5Efmu0ZSNf4Adxs8A2w', '__cf_bm': 'BRYR.qPJ1CHYLmiP1haljS5DHKg9G2BiiMuRpjbSISU-1713556338-1.0.1.1-U9KND.fH0.TXHObtRlc1XNEag7VSOAcIfWSc8UyLRsZhSYZcSXVUC58YKldVW.CXIlZulV6b97HXVGXBwmxmEA'}
+
+cookies = None
 if __name__ == '__main__':
-    perplexity = Perplexity(email=email, cookies=cookies, use_driver=False)
+    perplexity = Perplexity(email=email, cookies=cookies, debug=True)
     answer = perplexity.search_sync("how to take a screenshot?", "copilot")
     print(answer)
 #     # perplexity.close()
