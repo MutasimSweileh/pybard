@@ -257,12 +257,17 @@ class Perplexity:
             self.session.headers.update(self.user_agent)
 
     def _auth_session(self) -> None:
+        if not self.cookies:
+            return False
         re = self.session.get(
             url="https://www.perplexity.ai/api/auth/session", impersonate="chrome")
         if self.debug:
             print(re.request.url)
             print(re.status_code, re.text)
         if re.status_code == 200:
+            # for k, v in re.headers.items():
+            #     self.user_agent[k] = v
+            # self.session.headers.update(self.user_agent)
             return re.json()
         return False
 
@@ -690,6 +695,7 @@ cookies = {'AWSALB': 'L8o8k2jA+1jzi2jN5nhpjJ6A7YduMOS0jBhnGvV4jg0gAKDB1vqvBsWcQM
            'https%3A%2F%2Fwww.perplexity.ai%2Fapi%2Fauth%2Fsignin-callback%3Fredirect%3DdefaultMobileSignIn', '__cflb': '02DiuDyvFMmK5p9jVbVnMNSKYZhUL9aGmebyqfdFocbvc', '__Secure-next-auth.session-token': 'eyJhbGciOiJkaXIiLCJlbmMiOiJBMjU2R0NNIn0..740gG5RsUme7L_4f.xhKjBL8UcXAI-MIjOa7qGQN0ypFfiKwDlKz3nbMvIzZktYCZ9OY3TgxnrpLXUbImpN7JNHLasY3Nfjn3WUV7KD72nNTaQNd720alX0PujcN67xj7aN6P5J5KYWR99f_wk36UyS1-TZZ_V53hUcRMnBtvrXSZwSk2otE6Qzba3LDwgpVPq8oImYH1x1ftI9QU72l7c_R9Z82JjQxljhgDuG50Tg.jgO5Efmu0ZSNf4Adxs8A2w', '__cf_bm': 'BRYR.qPJ1CHYLmiP1haljS5DHKg9G2BiiMuRpjbSISU-1713556338-1.0.1.1-U9KND.fH0.TXHObtRlc1XNEag7VSOAcIfWSc8UyLRsZhSYZcSXVUC58YKldVW.CXIlZulV6b97HXVGXBwmxmEA'}
 
 cookies = None
+email = None
 if __name__ == '__main__':
     perplexity = Perplexity(email=email, cookies=cookies, debug=True)
     answer = perplexity.search_sync("how to take a screenshot?", "copilot")
