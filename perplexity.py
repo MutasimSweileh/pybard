@@ -125,6 +125,8 @@ class Perplexity:
                 resp = self.session.post('https://www.perplexity.ai/api/auth/signin-email', data={
                     'email': email,
                 }, impersonate="chrome")
+                if self.debug:
+                    print(resp.status_code, resp.text)
                 if resp.status_code == 200:
                     new_msgs = self.tmpEmail.getMessages(
                         "team@mail.perplexity.ai", wait=True)
@@ -255,7 +257,8 @@ class Perplexity:
     def _auth_session(self) -> None:
         re = self.session.get(
             url="https://www.perplexity.ai/api/auth/session", impersonate="chrome")
-        # print(re.text)
+        if self.debug:
+            print(re.status_code, re.text)
         if re.status_code == 200:
             return re.json()
         return False
@@ -272,9 +275,11 @@ class Perplexity:
                 url=f"https://www.perplexity.ai/socket.io/?EIO=4&transport=polling&t={self.t}", impersonate="chrome"
             )
             j = re.text
+            if self.debug:
+                print(re.status_code, re.text)
             if re.status_code != 200:
                 raise Exception(
-                    "invalid session")
+                    f"invalid session status_code: {re.status_code}")
         return loads(j[1:])["sid"]
 
     def _ask_anonymous_user(self) -> bool:
@@ -289,6 +294,8 @@ class Perplexity:
                 url=f"https://www.perplexity.ai/socket.io/?EIO=4&transport=polling&t={self.t}&sid={self.sid}",
                 data="40{\"jwt\":\"anonymous-ask-user\"}", impersonate="chrome"
             )
+            if self.debug:
+                print(response.status_code, response.text)
             for k, v in response.headers.items():
                 self.user_agent[k] = v
             # print(self.user_agent)
