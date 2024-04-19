@@ -245,6 +245,7 @@ class Perplexity:
             re = self.session.get(
                 url=url, impersonate="chrome")
             if self.debug:
+                print(re.request.url)
                 print(re.status_code, re.text)
         else:
             self.get_driver(url)
@@ -259,6 +260,7 @@ class Perplexity:
         re = self.session.get(
             url="https://www.perplexity.ai/api/auth/session", impersonate="chrome")
         if self.debug:
+            print(re.request.url)
             print(re.status_code, re.text)
         if re.status_code == 200:
             return re.json()
@@ -277,6 +279,7 @@ class Perplexity:
             )
             j = re.text
             if self.debug:
+                print(re.request.url)
                 print(re.status_code, re.text)
             if re.status_code != 200:
                 raise Exception(
@@ -296,6 +299,7 @@ class Perplexity:
                 data="40{\"jwt\":\"anonymous-ask-user\"}", impersonate="chrome"
             )
             if self.debug:
+                print(response.request.url)
                 print(response.status_code, response.text)
             for k, v in response.headers.items():
                 self.user_agent[k] = v
