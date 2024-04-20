@@ -157,7 +157,7 @@ class Perplexity:
 
     def get_session(self) -> Session:
         self.session = Session()
-        # self.session.headers.update(self.user_agent)
+        self.session.headers.update(self.user_agent)
         # self.session = cloudscraper.create_scraper(
         #     sess=self.session,
         #     debug=self.debug,
@@ -245,6 +245,7 @@ class Perplexity:
             re = self.session.get(
                 url=url, impersonate="chrome")
             if self.debug:
+                print(re.request.headers)
                 print(re.request.url)
                 print(re.status_code, re.text)
         else:
@@ -697,16 +698,19 @@ cookies = {'AWSALB': 'L8o8k2jA+1jzi2jN5nhpjJ6A7YduMOS0jBhnGvV4jg0gAKDB1vqvBsWcQM
 cookies = None
 email = None
 if __name__ == '__main__':
-    perplexity = Perplexity(email=email, cookies=cookies, debug=True)
+    perplexity = Perplexity(email=email, cookies=cookies, debug=False)
     answer = perplexity.search_sync("how to take a screenshot?", "copilot")
     print(answer)
 #     # perplexity.close()
 
 # session = Session()
+# session.headers.update({
+#     "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/50.0.2661.102 Safari/537.36"
+# })
 # r = session.get("https://www.google.com/", impersonate="chrome")
-# # print(r.headers)
-# # print(r.headers)
-# # print(r.cookies)
+# print(r.request.headers)
+# print(session.headers)
+# print(r.cookies)
 
 # for k, v in r.headers.items():
 #     print(f"{k} => {v}")
