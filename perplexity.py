@@ -15,6 +15,8 @@ from websocket import WebSocketApp
 from curl_cffi.requests import Session, WebSocket, get, post
 import cloudscraper
 import undetected_chromedriver as uc
+from selenium.webdriver.chrome.service import Service
+from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.common.by import By
 from dotenv import load_dotenv
 load_dotenv()
@@ -82,14 +84,24 @@ class Perplexity:
         self.frontend_session_id: str = str(uuid4())
         self.tmpEmail = temp_mail(email, create=True)
 
-    def get_driver(self, url):
+    def get_driver(self, url, headless=True):
         if not self.driver:
             chrome_options = uc.ChromeOptions()
+            service = Service(executable_path=ChromeDriverManager().install())
             user_agent = self.user_agent["User-Agent"]
-            chrome_options.add_argument(f"--user-agent={user_agent}")
+            # user_agent = None
+            # chrome_options.add_argument("start-maximized")
+            if headless:
+                chrome_options.add_argument('--headless=new')
+            chrome_options.add_argument('--disable-dev-shm-usage')
+            chrome_options.add_argument('--disable-gpu')
+            chrome_options.add_argument('--no-sandbox')
+            if user_agent:
+                chrome_options.add_argument(f"--user-agent={user_agent}")
             self.driver = CustomUCWebDriver(
-                headless=True, use_subprocess=False, options=chrome_options)
+                headless=headless, use_subprocess=False, options=chrome_options, service=service)
         self.driver.get(url)
+        self.user_agent["User-Agent"] = self.driver.user_agent()
         return self.driver.find_element(By.TAG_NAME, 'body').text
 
     def driver_cookies(self):
@@ -698,7 +710,8 @@ cookies = {'AWSALB': 'L8o8k2jA+1jzi2jN5nhpjJ6A7YduMOS0jBhnGvV4jg0gAKDB1vqvBsWcQM
 cookies = None
 email = None
 if __name__ == '__main__':
-    perplexity = Perplexity(email=email, cookies=cookies, debug=False)
+    perplexity = Perplexity(email=email, cookies=cookies,
+                            debug=True)
     answer = perplexity.search_sync("how to take a screenshot?", "copilot")
     print(answer)
 #     # perplexity.close()
