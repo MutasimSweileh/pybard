@@ -42,9 +42,8 @@ def get_fix_form(request):
 def fix_head(r):
     headers = []
     for v in r:
-        v = str(v).split(":")
-        print(v)
-        headers[v[0].strip()] = v[1].strip()
+        vf = str(v).split(":")
+        headers[vf[0].strip()] = vf[1].strip()
     return headers
 
 
