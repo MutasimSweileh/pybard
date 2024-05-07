@@ -19,6 +19,32 @@ users = {
 }
 
 
+def get_fix_form(request):
+    data = {}
+    if not request:
+        return data
+    try:
+        data = json.loads(request.data, strict=False)
+    except:
+        pass
+    data = {**request.form, **request.args, **data}
+    for k, v in data.items():
+        v = v.strip()
+        if not v or v == "0" or v == "false" or v == "none" or v == "null":
+            data[k] = False
+        if v == "1" or v == "true":
+            data[k] = True
+    return data
+
+
+def fix_head(r):
+    headers = []
+    for v in r:
+        v = str(v).split(":")
+        headers[v[0].strip()] = v[1].strip()
+    return headers
+
+
 @auth.verify_password
 def verify_password(username, password):
     if username in users and \
@@ -29,24 +55,12 @@ def verify_password(username, password):
 @app.route("/request", methods=['POST', 'GET'])
 @auth.login_required
 def request():
-    data = {}
-    try:
-        data = json.loads(rq.data, strict=False)
-    except:
-        pass
-    data = {**rq.form, **rq.args, **data}
+    data = get_fix_form(rq)
     url = data.get("url", None)
     brower = data.get("brower", "chrome")
     headers = data.get("headers", {})
     d = data.get("data", None)
     method = data.get("method", "POST" if d else "GET")
-
-    def fix_head(r):
-        headers = {}
-        for v in r:
-            v = str(v).split(":")
-            headers[v[0].strip()] = v[1].strip()
-        return headers
     headers = fix_head(headers)
     j = headers.get("Content-Type", None)
     j = headers.get("content-type", j)
@@ -54,7 +68,6 @@ def request():
         d = json.dumps(d)
     try:
         session = Session()
-        # headers = {**session.headers.items(), **headers}
         response = session.request(
             method, url, headers=headers, data=d, impersonate=brower)
         d = {
