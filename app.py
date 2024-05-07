@@ -29,6 +29,8 @@ def get_fix_form(request):
         pass
     data = {**request.form, **request.args, **data}
     for k, v in data.items():
+        if type(v) is not str:
+            continue
         v = v.strip()
         if not v or v == "0" or v == "false" or v == "none" or v == "null":
             data[k] = False
