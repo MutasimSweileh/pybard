@@ -43,6 +43,7 @@ def fix_head(r):
     headers = []
     for v in r:
         v = str(v).split(":")
+        print(v)
         headers[v[0].strip()] = v[1].strip()
     return headers
 
