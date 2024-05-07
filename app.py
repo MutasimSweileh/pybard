@@ -40,7 +40,7 @@ def get_fix_form(request):
 
 
 def fix_head(r):
-    headers = []
+    headers = {}
     for v in r:
         vf = str(v).split(":")
         headers[vf[0].strip()] = vf[1].strip()
