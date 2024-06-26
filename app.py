@@ -2,6 +2,7 @@ import json
 import os
 from flask import Flask, jsonify, make_response, request as rq
 from flask_httpauth import HTTPBasicAuth
+from captcha import Captcha
 import perplexity as perplexityapi
 from werkzeug.security import generate_password_hash, check_password_hash
 import cloudscraper
@@ -52,6 +53,26 @@ def verify_password(username, password):
     if username in users and \
             check_password_hash(users.get(username), password):
         return username
+
+
+@app.route("/captcha", methods=['POST', 'GET'])
+@auth.login_required
+def captcha():
+    data = get_fix_form(rq)
+    try:
+        c = Captcha()
+        c = c.handle_requsts(**data)
+        d = {
+            'success': True,
+            'data': c
+        }
+    except Exception as e:
+        m = str(e)
+        d = {
+            'success': False,
+            'error': m
+        }
+    return jsonify(d)
 
 
 @app.route("/request", methods=['POST', 'GET'])

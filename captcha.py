@@ -21,12 +21,14 @@ class Captcha(TwoCaptcha):
     def __init__(self):
         self.two_captcha = True
         self.ocr = "PaddleOCR"
+        self.error = None
         super().__init__(os.getenv("TwoCaptcha_API_KEY"))
 
     def huggingface(self, captcha_path="captcha.png"):
         API_URL = "https://api-inference.huggingface.co/models/microsoft/trocr-large-printed"
+        HUGGINGFACE_TOKEN = os.getenv("HUGGINGFACE_TOKEN")
         headers = {
-            "Authorization": "Bearer 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"}
+            "Authorization": f"Bearer {HUGGINGFACE_TOKEN}"}
         with open(captcha_path, "rb") as f:
             data = f.read()
         response = requests.post(API_URL, headers=headers, data=data)
@@ -54,6 +56,7 @@ class Captcha(TwoCaptcha):
                     raise Exception(solver.error_code)
         except Exception as e:
             print("funCaptcha error:", str(e))
+            self.error = str(e)
             return None
         else:
             print("Solved! code:", result)
@@ -91,6 +94,7 @@ class Captcha(TwoCaptcha):
             result = result["code"]
         except Exception as e:
             print("reCaptcha error:", str(e))
+            self.error = str(e)
             return None
         else:
             print("Solved! code:", result)
@@ -181,7 +185,23 @@ class Captcha(TwoCaptcha):
             return res
         except Exception as e:
             print(str(e))
+            self.error = str(e)
         return None
+
+    def handle_requsts(self, *args, **kwargs):
+        method = kwargs.get("type", "normal")
+        js = kwargs.get("js")
+        self.ocr = kwargs.get("model", "PaddleOCR")
+        url = kwargs.get("url")
+        if method == "reCaptcha":
+            c = self.reCaptcha(js, url)
+        elif method == "funCaptcha":
+            c = self.funCaptcha(js, url)
+        else:
+            c = self.normal_capcha(url)
+        if not c:
+            raise Exception(self.error)
+        return c
 
 
 if __name__ == "__main__":
