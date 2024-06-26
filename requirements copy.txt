@@ -1,0 +1,12 @@
+Flask==2.3.2
+Flask-HTTPAuth==4.8.0
+Werkzeug==2.3.6
+gunicorn==22.0.0
+cloudscraper==1.2.71
+Js2Py==0.74
+python-dotenv==1.0.0
+websocket-client==1.7.0
+websockets==10.4
+undetected-chromedriver==3.5.5
+curl_cffi==0.6.2
+webdriver-manager==4.0.1
