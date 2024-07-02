@@ -3,7 +3,7 @@ import numpy
 import cv2
 from PIL import Image, ImageFilter, ImageChops
 import os
-import easyocr
+# import easyocr
 from paddleocr import PaddleOCR
 from twocaptcha import TwoCaptcha
 from anticaptchaofficial.funcaptchaproxyless import *
@@ -109,14 +109,15 @@ class Captcha(TwoCaptcha):
         return cv2.threshold(src, 127, 255, cv2.THRESH_TOZERO)[1]
 
     def ocr_with_easy(self, img):
-        gray_scale_image = self.get_grayscale(img)
-        self.thresholding(gray_scale_image)
-        cv2.imwrite('image.png', gray_scale_image)
-        reader = easyocr.Reader(['en'], verbose=False)
-        bounds = reader.readtext('image.png', paragraph="False", detail=0)
-        bounds = ''.join(bounds).replace(
-            " ", "").strip() if len(bounds) > 0 else None
-        return bounds
+        pass
+        # gray_scale_image = self.get_grayscale(img)
+        # self.thresholding(gray_scale_image)
+        # cv2.imwrite('image.png', gray_scale_image)
+        # reader = easyocr.Reader(['en'], verbose=False)
+        # bounds = reader.readtext('image.png', paragraph="False", detail=0)
+        # bounds = ''.join(bounds).replace(
+        #     " ", "").strip() if len(bounds) > 0 else None
+        # return bounds
 
     def ocr_with_paddle(self, img):
         finaltext = ''

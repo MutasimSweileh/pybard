@@ -8,6 +8,8 @@ from werkzeug.security import generate_password_hash, check_password_hash
 import cloudscraper
 from curl_cffi.requests import Session, WebSocket, get, post
 from dotenv import load_dotenv
+
+from utils import get_http_client
 load_dotenv()
 
 app = Flask(__name__)
@@ -90,9 +92,9 @@ def request():
     if j and j.find("json") != -1:
         d = json.dumps(d)
     try:
-        session = Session()
+        session = get_http_client()
         response = session.request(
-            method, url, headers=headers, data=d, impersonate=brower)
+            method, url, headers=headers, data=d)
         d = {
             'success': True,
             "status_code": response.status_code,
