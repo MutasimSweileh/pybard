@@ -28,4 +28,4 @@ transformers==4.35.2
 2captcha-python==1.2.0
 anticaptchaofficial==1.0.52
 bs4==0.0.1
-webscout==3.9
+pyreqwest_impersonate==0.4.8
