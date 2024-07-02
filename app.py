@@ -88,13 +88,17 @@ def request():
     method = data.get("method", "POST" if d else "GET")
     headers = fix_head(headers)
     j = headers.get("Content-Type", None)
-    j = headers.get("content-type", j)
+    pas = {
+        "method": method,
+        "url": url
+    }
     if j and j.find("json") != -1:
-        d = json.dumps(d)
+        pas["json"] = d
+    elif d:
+        pas["data"] = d
     try:
         session = get_http_client()
-        response = session.request(
-            method, url, headers=headers, data=d)
+        response = session.request(**pas)
         d = {
             'success': True,
             "status_code": response.status_code,
