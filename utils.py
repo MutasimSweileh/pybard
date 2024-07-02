@@ -13,10 +13,31 @@ import pyreqwest_impersonate as pri  # type: ignore
 import requests
 
 
+def fix_headers(r):
+    headers = {}
+    if r:
+        for v in r:
+            if type(r) is list:
+                vf = str(v).split(":")
+                if len(vf) < 2:
+                    continue
+                k = vf[0].strip()
+                v = vf[1].strip()
+            else:
+                k = v
+                v = r[v]
+            k = map(lambda x: x.title(), k.split("-"))
+            k = "-".join(k)
+            if v:
+                headers[k] = v
+    return headers
+
+
 def get_http_client(*args, **kwargs) -> requests:
-    headers = kwargs.get("kwargs", {
+    headers = kwargs.get("headers", {
         "Referer": "https://duckduckgo.com/"
     })
+    headers = fix_headers(headers)
     timeout = kwargs.get("timeout", 30)
     return pri.Client(
         headers=headers,

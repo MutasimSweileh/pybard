@@ -9,7 +9,7 @@ import cloudscraper
 from curl_cffi.requests import Session, WebSocket, get, post
 from dotenv import load_dotenv
 
-from utils import get_http_client
+from utils import fix_headers, get_http_client
 load_dotenv()
 
 app = Flask(__name__)
@@ -83,10 +83,11 @@ def request():
     data = get_fix_form(rq)
     url = data.get("url", None)
     brower = data.get("brower", "chrome")
+    timeout = data.get("timeout", 30)
     headers = data.get("headers", {})
     d = data.get("data", None)
     method = data.get("method", "POST" if d else "GET")
-    headers = fix_head(headers)
+    headers = fix_headers(headers)
     j = headers.get("Content-Type", None)
     pas = {
         "method": method,
@@ -97,7 +98,7 @@ def request():
     elif d:
         pas["data"] = d
     try:
-        session = get_http_client()
+        session = get_http_client(timeout=timeout)
         response = session.request(**pas)
         d = {
             'success': True,
