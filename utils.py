@@ -1,3 +1,4 @@
+import base64
 import json
 import os
 import random
@@ -33,10 +34,39 @@ def fix_headers(r):
     return headers
 
 
+def convert_json(cookies):
+    try:
+        cookies = base64.b64decode(cookies).decode("utf-8")
+    except:
+        pass
+    try:
+        if cookies and type(cookies) is str:
+            cookies = json.loads(cookies)
+    except Exception as e:
+        pass
+    return cookies
+
+
+def _get_cookies_str(dcookies: dict) -> str:
+    cookies = ""
+    scookies = {}
+    dcookies = convert_json(dcookies)
+    if not dcookies:
+        return dcookies
+    if type(dcookies) is list:
+        for c in dcookies:
+            scookies[c["name"]] = c["value"]
+        dcookies = scookies
+    for key, value in dcookies.items():
+        cookies += f"{key}={value}; "
+    return cookies[:-2]
+
+
 def get_http_client(*args, **kwargs) -> requests:
     headers = kwargs.get("headers", {
         "Referer": "https://duckduckgo.com/"
     })
+    brower = kwargs.get("brower", "chrome_124")
     headers = fix_headers(headers)
     timeout = kwargs.get("timeout", 30)
     return pri.Client(
@@ -44,7 +74,7 @@ def get_http_client(*args, **kwargs) -> requests:
         timeout=timeout,
         cookie_store=True,
         referer=True,
-        impersonate="chrome_124",
+        impersonate=brower,
         follow_redirects=False,
         verify=False,
     )

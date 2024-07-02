@@ -9,7 +9,7 @@ import cloudscraper
 from curl_cffi.requests import Session, WebSocket, get, post
 from dotenv import load_dotenv
 
-from utils import fix_headers, get_http_client
+from utils import _get_cookies_str, fix_headers, get_http_client
 load_dotenv()
 
 app = Flask(__name__)
@@ -77,32 +77,40 @@ def captcha():
     return jsonify(d)
 
 
+@app.route("/send", methods=['POST', 'GET'])
 @app.route("/request", methods=['POST', 'GET'])
 @auth.login_required
 def request():
     data = get_fix_form(rq)
     url = data.get("url", None)
-    brower = data.get("brower", "chrome")
+    brower = data.get("brower", "chrome_124")
     timeout = data.get("timeout", 30)
     headers = data.get("headers", {})
+    cookies = data.get("cookies", None)
     d = data.get("data", None)
     method = data.get("method", "POST" if d else "GET")
     headers = fix_headers(headers)
     j = headers.get("Content-Type", None)
+    if cookies:
+        headers["Cookie"] = _get_cookies_str(cookies)
     pas = {
         "method": method,
         "url": url
     }
+    if headers:
+        pas["headers"] = headers
     if j and j.find("json") != -1:
         pas["json"] = d
     elif d:
         pas["data"] = d
     try:
-        session = get_http_client(timeout=timeout)
+        session = get_http_client(timeout=timeout, brower=brower)
         response = session.request(**pas)
         d = {
             'success': True,
             "status_code": response.status_code,
+            "headers": response.headers,
+            "cookies": response.cookies,
             'data': response.text
         }
     except Exception as e:
