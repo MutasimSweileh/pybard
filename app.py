@@ -1,6 +1,6 @@
 import json
 import os
-from flask import Flask, jsonify, make_response, request
+from flask import Flask, Request, jsonify, make_response, request
 from flask_httpauth import HTTPBasicAuth
 from captcha import Captcha
 import perplexity as perplexityapi
@@ -20,7 +20,7 @@ users = {
 }
 
 
-def get_fix_form(request):
+def get_fix_form(request: Request):
     data = {}
     if not request:
         return data
@@ -58,7 +58,7 @@ def verify_password(username, password):
 @app.route("/captcha", methods=['POST', 'GET'])
 @auth.login_required
 def captcha():
-    data = get_fix_form(rq)
+    data = get_fix_form(request)
     try:
         c = Captcha()
         c = c.handle_requsts(**data)
