@@ -19,6 +19,8 @@ tls-client==1.0.1
 anticaptchaofficial==1.0.52
 bs4==0.0.1
 pyreqwest_impersonate==0.4.8
+undetected-chromedriver==3.5.5
+undetected-playwright==0.2.0
 scalene==1.5.31.1
 scikit-image==0.21.0
 scipy==1.10.1
