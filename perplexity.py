@@ -11,14 +11,13 @@ from threading import Thread
 from json import loads, dumps
 from random import getrandbits
 from websocket import WebSocketApp
-# from requests import Session, get, post
-from curl_cffi.requests import Session, WebSocket, get, post
-import cloudscraper
 import undetected_chromedriver as uc
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.common.by import By
 from dotenv import load_dotenv
+
+from utils import get_http_client
 load_dotenv()
 
 
@@ -252,8 +251,8 @@ class Perplexity:
             sleep(0.01)
         return True
 
-    def get_session(self) -> Session:
-        self.session = Session()
+    def get_session(self):
+        self.session = get_http_client()
         self.session.headers.update(self.user_agent)
         # self.session = cloudscraper.create_scraper(
         #     sess=self.session,

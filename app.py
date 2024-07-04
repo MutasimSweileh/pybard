@@ -5,8 +5,6 @@ from flask_httpauth import HTTPBasicAuth
 from captcha import Captcha
 import perplexity as perplexityapi
 from werkzeug.security import generate_password_hash, check_password_hash
-import cloudscraper
-from curl_cffi.requests import Session, WebSocket, get, post
 from dotenv import load_dotenv
 
 from utils import _get_cookies_str, fix_headers, get_http_client
