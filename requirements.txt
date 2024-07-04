@@ -31,3 +31,4 @@ bs4==0.0.1
 pyreqwest_impersonate==0.4.8
 undetected-chromedriver==3.5.5
 undetected-playwright==0.2.0
+tls-client==1.0.1

@@ -11,6 +11,7 @@ from constants import DELIMETER
 # import tls_client
 import pyreqwest_impersonate as pri  # type: ignore
 
+import tls_client
 import requests
 
 
@@ -62,22 +63,21 @@ def _get_cookies_str(dcookies: dict) -> str:
     return cookies[:-2]
 
 
-def get_http_client(*args, **kwargs) -> requests:
+def get_http_client(*args, **kwargs) -> tls_client.Session:
     headers = kwargs.get("headers", {
         "Referer": "https://duckduckgo.com/"
     })
-    brower = kwargs.get("brower", "chrome_124")
+    brower = kwargs.get("brower", "chrome_120")
     headers = fix_headers(headers)
     timeout = kwargs.get("timeout", 30)
-    return pri.Client(
-        headers=headers,
-        timeout=timeout,
-        cookie_store=True,
-        referer=True,
-        impersonate=brower,
-        follow_redirects=False,
-        verify=False,
+    session = tls_client.Session(
+        client_identifier=brower,
+        random_tls_extension_order=True,
+        debug=False
     )
+    session.timeout_seconds = timeout
+    session.headers.update(headers)
+    return session
 
 
 def get_useragent():

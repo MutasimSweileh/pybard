@@ -83,7 +83,7 @@ def captcha():
 def request():
     data = get_fix_form(rq)
     url = data.get("url", None)
-    brower = data.get("brower", "chrome_124")
+    brower = data.get("brower", "chrome_120")
     timeout = data.get("timeout", 30)
     headers = data.get("headers", {})
     cookies = data.get("cookies", None)
@@ -94,7 +94,6 @@ def request():
     if cookies:
         headers["Cookie"] = _get_cookies_str(cookies)
     pas = {
-        "method": method,
         "url": url
     }
     if headers:
@@ -105,12 +104,15 @@ def request():
         pas["data"] = d
     try:
         session = get_http_client(timeout=timeout, brower=brower)
-        response = session.request(**pas)
+        if method == "GET":
+            response = session.get(**pas)
+        else:
+            response = session.post(**pas)
         d = {
             'success': True,
             "status_code": response.status_code,
             "headers": response.headers,
-            "cookies": response.cookies,
+            "cookies": response.cookies.get_dict(),
             'data': response.text
         }
     except Exception as e:
