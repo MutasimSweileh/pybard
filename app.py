@@ -1,6 +1,6 @@
 import json
 import os
-from flask import Flask, jsonify, make_response, request as rq
+from flask import Flask, jsonify, make_response, request
 from flask_httpauth import HTTPBasicAuth
 from captcha import Captcha
 import perplexity as perplexityapi
@@ -78,8 +78,8 @@ def captcha():
 @app.route("/send", methods=['POST', 'GET'])
 @app.route("/request", methods=['POST', 'GET'])
 @auth.login_required
-def request():
-    data = get_fix_form(rq)
+def requesta():
+    data = get_fix_form(request)
     url = data.get("url", None)
     brower = data.get("brower", "chrome_120")
     timeout = data.get("timeout", 30)
@@ -125,7 +125,7 @@ def request():
 @app.route("/perplexity", methods=['POST', 'GET'])
 @auth.login_required
 def perplexity():
-    data = {**rq.form, **rq.args}
+    data = {**request.form, **request.args}
     sessionKey = data.get("sessionKey", None)
     conversationId = data.get("conversationId", None)
     debug = data.get("debug", False)

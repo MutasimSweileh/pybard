@@ -4,13 +4,9 @@ import os
 import random
 import re
 from urllib.parse import urlparse
-
 from bs4 import BeautifulSoup
-
 from constants import DELIMETER
-# import tls_client
 import pyreqwest_impersonate as pri  # type: ignore
-
 import tls_client
 import requests
 
