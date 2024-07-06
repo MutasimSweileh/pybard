@@ -59,7 +59,7 @@ def _get_cookies_str(dcookies: dict) -> str:
     return cookies[:-2]
 
 
-def get_headers_dict(self, headers):
+def get_headers_dict(headers):
     headers = {}
     for k, v in headers.items():
         k = map(lambda x: x.title(), k.split("-"))
@@ -81,6 +81,15 @@ def get_http_client(*args, **kwargs) -> tls_client.Session:
         random_tls_extension_order=True,
         debug=False
     )
+    # return pri.Client(
+    #     headers=headers,
+    #     timeout=timeout,
+    #     cookie_store=True,
+    #     referer=True,
+    #     impersonate=brower,
+    #     follow_redirects=False,
+    #     verify=False
+    # )
     session.timeout_seconds = timeout
     session.headers.update(headers)
     return session
