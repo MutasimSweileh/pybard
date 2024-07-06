@@ -66,6 +66,7 @@ def get_http_client(*args, **kwargs) -> tls_client.Session:
     brower = kwargs.get("brower", "chrome_120")
     headers = fix_headers(headers)
     timeout = kwargs.get("timeout", 30)
+    return requests.Session()
     session = tls_client.Session(
         client_identifier=brower,
         random_tls_extension_order=True,
