@@ -1,4 +1,12 @@
 # from curl_cffi import requests as curl
+import websocket
+import websockets.client as websockets
+from websockets.client import WebSocketClientProtocol
+import ast
+import asyncio
+from utils import as_json, check_if_url, cookies_as_dict, get_http_client
+import ast
+import warnings
 import base64
 import json
 import os
@@ -11,132 +19,21 @@ from threading import Thread
 from json import loads, dumps
 from random import getrandbits
 from websocket import WebSocketApp
+# from requests import Session, get, post
 import undetected_chromedriver as uc
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.common.by import By
+from ucwebdriver import UC_Webdriver, CustomUCWebDriver
+from exceptions import CustomException
+import certifi
+import ssl
 from dotenv import load_dotenv
-
-from utils import get_http_client
 load_dotenv()
 
 
-class CustomUCWebDriver(uc.Chrome):
-    def post(self, url, data):
-        return self.execute_script(f"""
-            return fetch("{url}", {{
-                method: "POST",
-                body: '{data}',
-                headers: {{
-                    "Content-Type": "text/plain;charset=UTF-8"
-                }}
-            }})
-            .then(response => response.text());
-        """)
-
-    def user_agent(self):
-        return self.execute_script("return window.navigator.userAgent;")
-
-    def locator(self, locator, timeout=5):
-        ba = By.CSS_SELECTOR
-        if locator.find("[") == -1 and locator.find(".") == -1 and locator.find("(") == -1 and locator.find("#") == -1:
-            ba = By.TAG_NAME
-        try:
-            el = self.find_element(
-                ba, locator)
-            return el
-        except Exception as e:
-            raise Exception(f"Element not found! {locator}")
-
-    def wait_for_timeout(self, timeout=3000):
-        timeout = (timeout / 1000) if timeout > 100 else timeout
-        sleep(timeout)
-
-    def goto(self, url):
-        self.get(url)
-
-    def content(self):
-        return self.page_source
-
-    def get_html(self, tag="body"):
-        return self.find_element(By.TAG_NAME, tag).get_attribute('innerHTML')
-
-    def get_text(self, tag="body"):
-        return self.find_element(By.TAG_NAME, tag).text
-
-
-class UC_Webdriver:
-    def __init__(self, headless=True, user_agent=None):
-        self.headless = headless
-        self.driver = None
-        self.user_agent = user_agent
-
-    def get_driver(self, **kwargs) -> CustomUCWebDriver:
-        headless = kwargs.get("headless", self.headless)
-        user_agent = kwargs.get("user_agent", self.user_agent)
-        if not self.driver:
-            chrome_options = uc.ChromeOptions()
-            service = Service(executable_path=ChromeDriverManager().install())
-            if headless:
-                chrome_options.add_argument('--headless=new')
-            chrome_options.add_argument('--disable-dev-shm-usage')
-            chrome_options.add_argument('--disable-gpu')
-            chrome_options.add_argument('--no-sandbox')
-            if user_agent:
-                chrome_options.add_argument(f"--user-agent={user_agent}")
-            self.driver = CustomUCWebDriver(
-                headless=headless, use_subprocess=False, options=chrome_options, service=service)
-        return self.driver
-
-    @classmethod
-    def get_html(cls, url, **kwargs):
-        html = ""
-        try:
-            c = cls()
-            driver = c.get_driver(headless=True)
-            driver.goto(str(url))
-            timeout = kwargs.get("timeout", 3000)
-            driver.wait_for_timeout(timeout)
-            html = driver.content()
-            ajax = kwargs.get("ajax", False)
-            if ajax:
-                driver.wait_for_timeout(3000)
-                html = driver.get_html("html")
-        except Exception as e:
-            print("Get html error:", str(e))
-        finally:
-            c.close_driver()
-        return html
-
-    def driver_cookies(self):
-        cookies = {}
-        co = self.driver.get_cookies()
-        self.d_cookies = co
-        for c in co:
-            cookies[c["name"]] = c["value"]
-        return cookies
-
-    def close_driver(self):
-        if self.driver:
-            self.driver.close()
-            self.driver = None
-
-
-class CustomException(Exception):
-    def __init__(self, message):
-        self.message = message
-
-    def getJSON(self):
-        if type(self.message) is dict:
-            return self.message
-        return {'message': self.message, "success": False}
-
-    def __str__(self):
-        return self.getJSON()['message']
-
-
 class Perplexity:
-    def __init__(self, cookies: str = None, email: str = None, debug=False, use_driver=False) -> None:
+    def __init__(self, cookies: str = None, email: str = None, debug=False, use_driver=False, close=True) -> None:
         # self.session: Session = Session()
         self.csrfToken = None
         self.driver = None
@@ -148,27 +45,61 @@ class Perplexity:
         self.gpt4_limit = 0
         self.upload_limit = 3
         self.mode = None
+        self.timeout = 30
+        self.wss_client: WebSocketClientProtocol | None = None
         self.user_agent: dict = {
-            "User-Agent": "Ask/2.4.1/224 (iOS; iPhone; Version 17.1) isiOSOnMac/false", "X-Client-Name": "Perplexity-iOS"}
+            "User-Agent": "Ask/2.4.1/224 (iOS; iPhone; Version 17.1) isiOSOnMac/False", "X-Client-Name": "Perplexity-iOS"}
         self.user_agent = {
             "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/50.0.2661.102 Safari/537.36"
         }
-        # self.session.headers.update(self.user_agent)
         self.cookies = self.convert_session(cookies)
         self.row_cookies = self.cookies
         self.debug = debug
-        self.session = self.get_session()
+        self.session = None
         self.ws = None
         self.last_message = None
-
         self.n: int = 1
         self.base: int = 420
         self.queue: list = []
+        self.recent_conversations: list = []
         self.finished: bool = True
+        self.soket_error: str = None
         self.last_uuid: str = None
         self.backend_uuid: str = None  # unused because we can't yet follow-up questions
         self.frontend_session_id: str = str(uuid4())
         self.tmpEmail = temp_mail(email, create=True)
+        self._close = close
+
+    def init(self, **kwargs):
+        try:
+            email = kwargs.get("email", None)
+            self.backend_uuid = kwargs.get("conversationId", None)
+            self.check_run(email)
+            self.soket_error = None
+            self.last_message = None
+            self.timeout = kwargs.get("use_driver", self.timeout)
+            self.use_driver = kwargs.get("use_driver", self.use_driver)
+            self.debug = kwargs.get("debug", self.debug)
+            self.email = email
+            self.mode = kwargs.get("mode", self.mode)
+            self.tmpEmail.email = self.email
+            self.cookies = self.convert_session(
+                kwargs.get("cookies", self.cookies))
+            self.session = self.get_session()
+            self.get_user_settings(True)
+            self.create_account()
+            if self.backend_uuid:
+                self.getConversation(self.backend_uuid)
+        except (Exception, CustomException) as e:
+            self.close()
+            raise CustomException(e)
+
+    def check_run(self, email=None):
+        if not self.finished:
+            raise Exception(
+                "already searching ...")
+        if email != self.email:
+            self.session = get_http_client()
 
     def get_driver(self, url, headless=True):
         if not self.driver:
@@ -213,61 +144,68 @@ class Perplexity:
             self.driver.close()
             self.driver = None
 
-    def create_account(self):
-        self.get_user_settings(True)
-        if not self.isLogin and self.email and not self.use_driver:
-            try:
-                email = self.tmpEmail.getEmail(None)
-                self.email = email
-                resp = self.session.post('https://www.perplexity.ai/api/auth/signin-email', data={
-                    'email': email,
-                }, impersonate="chrome")
-                if self.debug:
-                    print(resp.status_code, resp.text)
-                if resp.status_code == 200:
-                    new_msgs = self.tmpEmail.getMessages(
-                        "team@mail.perplexity.ai", wait=True)
-                    if not new_msgs:
-                        raise Exception(
-                            f'Fail to get email message {self.email} !')
-                    new_account_link = new_msgs[0]
-                    self.session.get(new_account_link, impersonate="chrome")
-                elif resp.status_code == 429:
+    def create_account(self, Force=True):
+        if self.isLogin and self.email and not self.use_driver:
+            # try:
+            email = self.tmpEmail.getEmail(None)
+            self.email = email
+            if not email:
+                raise Exception("Email is required")
+            url = 'https://www.perplexity.ai/api/auth/signin-email'
+            self._debug(url)
+            resp = self.session.post(url, data={
+                'email':  self.email,
+            })
+            self._debug(resp.status_code, resp.text)
+            if resp.status_code == 200:
+                new_msgs = self.tmpEmail.getMessages(
+                    "team@mail.perplexity.ai", wait=True)
+                if not new_msgs:
                     raise Exception(
-                        f'Too many requests. Try again in 1 minute.')
-                else:
-                    raise Exception(f'Error triggering email sign in')
-            except Exception as e:
-                raise Exception(str(e))
+                        f'Fail to get email message {email} !')
+                new_account_link = new_msgs[0]
+                resp = self.session.get(new_account_link)
+                self.cookies = resp.cookies.get_dict()
+                # self.session.cookies.clear()
+                # self.session.cookies.update(resp.cookies.get_dict())
+            elif resp.status_code == 429:
+                raise Exception({
+                    "message": "Too many requests. Try again in 1 minute.",
+                    "email": self.email,
+                    "cookies": self.get_cookies_dict(),
+                })
+                raise Exception(
+                    f'Too many requests. Try again in 1 minute.')
+            else:
+                txt = resp.text
+                if txt.find("Email is required") != -1 and email and Force:
+                    return self.create_account(False)
+                raise Exception(
+                    f'Error triggering email {email} sign in & {txt}')
+            # except Exception as e:
+            #     raise Exception(str(e))
         self.t: str = self._get_t()
         self.sid: str = self._get_sid()
         self._ask_anonymous_user()
-
-        self.ws: WebSocketApp = self._init_websocket()
-        self.ws_thread: Thread = Thread(target=self.ws.run_forever).start()
-        # self._auth_session()
-
-        while not (self.ws.sock and self.ws.sock.connected):
-            sleep(0.01)
+        if self.isLogin:
+            self.get_user_settings()
+        # self.ws: WebSocketApp = self._init_websocket()
+        # self.ws_thread: Thread = Thread(target=self.ws.run_forever, kwargs={
+        #     "suppress_origin": True}).start()
+        # while self.ws and not (self.ws.sock and self.ws.sock.connected):
+        #     if self.soket_error:
+        #         break
+        #     sleep(0.01)
         return True
 
     def get_session(self):
         self.session = get_http_client()
-        self.session.headers.update(self.user_agent)
-        # self.session = cloudscraper.create_scraper(
-        #     sess=self.session,
-        #     debug=self.debug,
-        #     delay=20,
-        #     interpreter='js2py',
-        #     captcha={
-        #         'provider': '2captcha',
-        #         'api_key': os.getenv("TwoCaptcha_API_KEY")
-        #     }
-        # )
-        # self.session = curl.Session()
+        self.session.headers.update({
+            "X-Client-Name": "Perplexity-iOS"
+        })
+        # self.session.headers.update(self.user_agent)
         try:
             if self.cookies:
-                # del self.cookies["__Secure-next-auth.callback-url"]
                 cookies = {}
                 if type(self.cookies) is list:
                     for c in self.cookies:
@@ -278,11 +216,11 @@ class Perplexity:
                 self.csrfToken = cookies.get(
                     "next-auth.csrf-token", self.csrfToken)
             if not self._auth_session():
-                self.isLogin = False
-                self.cookies = None
-                self._init_session_without_login()
-            else:
                 self.isLogin = True
+                self.cookies = None
+            else:
+                self.isLogin = False
+                self._init_session_without_login()
             cookies = self.get_cookies_dict()
             self.csrfToken = cookies.get(
                 "next-auth.csrf-token", self.csrfToken)
@@ -299,6 +237,14 @@ class Perplexity:
         for k, v in self.session.cookies.items():
             cookies[k] = v
         return cookies
+
+    def get_headers_dict(self):
+        headers = {}
+        for k, v in self.session.headers.items():
+            k = map(lambda x: x.title(), k.split("-"))
+            k = "-".join(k)
+            headers[k] = v
+        return headers
 
     def convert_session(self, cookies):
         try:
@@ -339,11 +285,10 @@ class Perplexity:
     def _init_session_without_login(self) -> None:
         url = f"https://www.perplexity.ai/search/{str(uuid4())}"
         if not self.use_driver:
+            self._debug(url)
             re = self.session.get(
-                url=url, impersonate="chrome")
-            if self.debug:
-                print(re.request.url)
-                print(re.status_code, re.text)
+                url=url)
+            self._debug(re.status_code, re.text)
         else:
             self.get_driver(url)
             self.session.cookies.update(self.driver_cookies())
@@ -351,29 +296,42 @@ class Perplexity:
             self.user_agent = {
                 "User-Agent": user_agent}
             # print(self.user_agent)
-            self.session.headers.update(self.user_agent)
+            # self.session.headers.update(self.user_agent)
+
+    def _debug(self, *st):
+        if self.debug:
+            print(st)
+            print("="*20)
 
     def _auth_session(self) -> None:
         if not self.cookies:
             return False
+        url = "https://www.perplexity.ai/api/auth/session"
+        self._debug(url)
         re = self.session.get(
-            url="https://www.perplexity.ai/api/auth/session", impersonate="chrome")
-        if self.debug:
-            print(re.request.url)
-            print(re.status_code, re.text)
+            url=url)
+        self._debug(re.status_code, re.text)
         if re.status_code == 200:
             return re.json()
         return False
+
+    def check_limit(self):
+        if self.gpt4_limit <= 0 and self.mode == "copilot":
+            raise Exception({
+                "message": "Exceeded completions",
+                "email": self.email,
+                "cookies": self.get_cookies_dict(),
+            })
+            raise Exception("Exceeded completions")
 
     def get_user_settings(self, check=False):
         if not self.cookies:
             return False
         url = "https://www.perplexity.ai/p/api/v1/user/settings"
+        self._debug(url)
         re = self.session.get(
-            url=url, impersonate="chrome")
-        if self.debug:
-            print(re.request.url)
-            print(re.status_code, re.text)
+            url=url)
+        self._debug(re.status_code, re.text)
         if re.status_code == 200:
             j = re.json()
             self.copilot = j["query_count_copilot"]
@@ -381,7 +339,11 @@ class Perplexity:
             self.gpt4_limit = j["gpt4_limit"]
             self.upload_limit = j["upload_limit"]
             if check and self.gpt4_limit <= 0 and self.mode == "copilot":
-                raise Exception("Exceeded completions")
+                raise Exception({
+                    "message": "Exceeded completions",
+                    "email": self.email,
+                    "cookies": self.get_cookies_dict(),
+                })
             return j
         return False
 
@@ -389,40 +351,42 @@ class Perplexity:
         return format(getrandbits(32), "08x")
 
     def _get_sid(self) -> str:
+        url = f"https://www.perplexity.ai/socket.io/?EIO=4&transport=polling&t={self.t}"
         if self.use_driver:
-            j = self.get_driver(
-                f"https://www.perplexity.ai/socket.io/?EIO=4&transport=polling&t={self.t}")
+            j = self.get_driver(url)
         else:
+            self._debug(url)
             re = self.session.get(
-                url=f"https://www.perplexity.ai/socket.io/?EIO=4&transport=polling&t={self.t}", impersonate="chrome"
+                url=url
             )
             j = re.text
-            if self.debug:
-                print(re.request.url)
-                print(re.status_code, re.text)
+            self._debug(re.status_code, re.text)
             if re.status_code != 200:
                 raise Exception(
                     f"invalid session status_code: {re.status_code}")
         return loads(j[1:])["sid"]
 
     def _ask_anonymous_user(self) -> bool:
+        url = f"https://www.perplexity.ai/socket.io/?EIO=4&transport=polling&t={self.t}&sid={self.sid}"
         if self.use_driver:
             response = self.driver.post(
-                f"https://www.perplexity.ai/socket.io/?EIO=4&transport=polling&t={self.t}&sid={self.sid}", "40{\"jwt\":\"anonymous-ask-user\"}")
+                url, "40{\"jwt\":\"anonymous-ask-user\"}")
             cookies = self.driver_cookies()
             self.session.cookies.update(cookies)
             self.close_driver()
         else:
+            self._debug(url)
             response = self.session.post(
-                url=f"https://www.perplexity.ai/socket.io/?EIO=4&transport=polling&t={self.t}&sid={self.sid}",
-                data="40{\"jwt\":\"anonymous-ask-user\"}", impersonate="chrome"
+                url=url,
+                data="40{\"jwt\":\"anonymous-ask-user\"}"
             )
-            if self.debug:
-                print(response.request.url)
-                print(response.status_code, response.text)
+            self._debug(response.status_code, response.text)
+            headers = {}
             for k, v in response.headers.items():
-                self.user_agent[k] = v
-            # print(self.user_agent)
+                headers[k] = v
+            # print(response.cookies.get_dict())
+            # self.session.headers.update(headers)
+            # self.session.cookies = response.cookies
             response = response.text
         if response != "OK":
             raise Exception(
@@ -431,7 +395,7 @@ class Perplexity:
 
     def _start_interaction(self) -> None:
         self.finished = False
-
+        self.last_message = None
         if self.n == 9:
             self.n = 0
             self.base *= 10
@@ -443,7 +407,7 @@ class Perplexity:
     def _get_cookies_str(self) -> str:
         cookies = ""
         for key, value in self.get_cookies_dict().items():
-            cookies += f"{key}={value}; "
+            cookies += f"{key}={value};"
         return cookies[:-2]
 
     def _write_file_url(self, filename: str, file_url: str) -> None:
@@ -470,36 +434,36 @@ class Perplexity:
             elif message == '3probe':
                 ws.send('5')
             elif not self.finished:
-                if message.startswith("42"):
-                    message: list = loads(message[2:])
-                    content: dict = message[1]
-                    if "mode" in content and content["mode"] == "copilot":
-                        content["copilot_answer"] = loads(content["text"])
-                    elif "mode" in content:
-                        content.update(loads(content["text"]))
-                    content.pop("text")
-                    if (not ("final" in content and content["final"])) or ("status" in content and content["status"] == "completed"):
-                        self.queue.append(content)
-                    if message[0] == "query_answered":
-                        self.last_uuid = content["uuid"]
-                        self.finished = True
-                elif message.startswith("43"):
-                    message: dict = loads(message[3:])[0]
-                    if message["step_type"] == "PROMPT_INPUT":
-                        self.prompt_input(message)
-                    elif ("uuid" in message and message["uuid"] != self.last_uuid) or "uuid" not in message:
-                        self.queue.append(message)
-                        self.finished = True
+                self.get_socket_message(message)
 
         def on_error(ws: WebSocketApp, message: str):
             message = str(message)
-            m = f"websocket error: {message} & last message: {self.last_message}"
+            m = f"websocket error: {message}"
             if self.debug:
                 print(m)
-            raise Exception(m)
-        return WebSocketApp(
+            self.soket_error = {
+                "message": m,
+                "cookies": self.get_cookies_dict()
+            }
+            if self.last_message:
+                self.soket_error["message"] += " & "+str(self.last_message)
+        header = {}
+        # header["Accept-Encoding"] = "gzip, deflate, br, zstd"
+        # header["Connection"] = "Upgrade"
+        # header["Cookie"] = self._get_cookies_str()
+        # header["Host"] = "www.perplexity.ai"
+        # header["Origin"] = "https://www.perplexity.ai"
+        # header["Pragma"] = "no-cache"
+        # header["Upgrade"] = "websocket"
+        header["User-Agent"] = self.get_headers_dict()["User-Agent"]
+        print(header)
+        # headers = self.get_headers_dict()
+        # print(headers)
+        # websocket.enableTrace(True)
+        return websocket.WebSocketApp(
             url=f"wss://www.perplexity.ai/socket.io/?EIO=4&transport=websocket&sid={self.sid}",
-            header=self.user_agent,
+            # header={"User-Agent": self.get_headers_dict()["User-Agent"]},
+            header=self.get_headers_dict(),
             cookie=self._get_cookies_str(),
             on_open=on_open,
             on_message=on_message,
@@ -602,11 +566,99 @@ class Perplexity:
                         }
                     ]))
 
+    def get_socket_message(self, message: str):
+        if message.startswith("42"):
+            message: list = loads(message[2:])
+            content: dict = message[1]
+            if ("status" in content and content["status"] == "pending"):
+                self.timeout *= 2
+            if "mode" in content and content["mode"] == "copilot":
+                content["copilot_answer"] = loads(content["text"])
+            elif "mode" in content:
+                content.update(loads(content["text"]))
+            content.pop("text")
+            if (not ("final" in content and content["final"])) or ("status" in content and content["status"] == "completed"):
+                self.queue.append(content)
+            if message[0] == "query_answered":
+                self.last_uuid = content["uuid"]
+                self.finished = True
+        elif message.startswith("43"):
+            message: dict = loads(message[3:])[0]
+            if "status" in message and message["status"] == "failed":
+                self.soket_error = message["text"]
+            elif "step_type" in message and message["step_type"] == "PROMPT_INPUT":
+                self.prompt_input(message)
+            elif ("uuid" in message and message["uuid"] != self.last_uuid) or "uuid" not in message:
+                self.queue.append(message)
+                self.finished = True
+
+    async def _ask(self, query: str, mode: str = "concise", focus: str = "internet", attachments: list[str] = [], language: str = "en-US", in_page: str = None, in_domain: str = None):
+        try:
+            # header = self.user_agent
+            header = {}
+            # header["Accept-Encoding"] = "gzip, deflate, br, zstd"
+            # header["Connection"] = "Upgrade"
+            header["Cookie"] = self._get_cookies_str()
+            # header["Host"] = "www.perplexity.ai"
+            # header["Origin"] = "https://www.perplexity.ai"
+            # header["Pragma"] = "no-cache"
+            # header["Upgrade"] = "websocket"
+            header["X-Client-Name"] = "Perplexity-iOS"
+            header["User-Agent"] = self.get_headers_dict()["User-Agent"]
+            # print(header)
+            # print(self.get_headers_dict())
+            ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+            ssl_context.minimum_version = ssl.TLSVersion.TLSv1_2
+            ssl_context.maximum_version = ssl.TLSVersion.TLSv1_3
+            ssl_context.load_verify_locations(certifi.where())
+            self.ws = await websockets.connect(
+                f"wss://www.perplexity.ai/socket.io/?EIO=4&transport=websocket&sid={self.sid}",
+                extra_headers=header, max_size=None, ssl=ssl_context
+            )
+        except Exception as e:
+            raise Exception({
+                "message": str(e),
+                "email": self.email,
+                "cookies": self.get_cookies_dict(),
+            })
+            raise CustomException(
+                "Failed to connect to Copilot, connection timed out") from None
+        await self.ws.send("2probe")
+        await self.ws.recv()
+        await self.ws.send("5")
+        await self.ws.recv()
+        self._start_interaction()
+        ws_message: str = f"{self.base + self.n}" + dumps([
+            "perplexity_ask",
+            query,
+            {
+                "version": "2.9",
+                "source": "default",  # "ios"
+                "frontend_session_id": self.frontend_session_id,
+                "language": language,
+                # "timezone": "CET",
+                'last_backend_uuid': self.backend_uuid,
+                "attachments": attachments,
+                "search_focus": focus,
+                "frontend_uuid": str(uuid4()),
+                "mode": mode,
+                "prompt_source": "user",
+                "query_source": "home",
+                "is_incognito": False,
+                # "use_inhouse_model": True
+                "in_page": in_page,
+                "in_domain": in_domain
+            }
+        ])
+
+        await self.ws.send(ws_message)
+        while not self.finished:
+            message = str(await self.ws.recv())
+            self.get_socket_message(message)
+        await self.ws.close()
+
     def _s(self, query: str, mode: str = "concise", focus: str = "internet", attachments: list[str] = [], language: str = "en-GB", in_page: str = None, in_domain: str = None) -> None:
 
-        if not self.finished:
-            raise Exception(
-                "already searching")
         if len(attachments) >= 4:
             raise Exception(
                 "too many attachments: max 4")
@@ -627,27 +679,31 @@ class Perplexity:
             focus = "in_page"
         if in_domain:
             focus = "in_domain"
-
+        if self.soket_error:
+            raise Exception(self.soket_error)
         self._start_interaction()
         ws_message: str = f"{self.base + self.n}" + dumps([
             "perplexity_ask",
             query,
             {
-                "version": "2.1",
+                "version": "2.9",
                 "source": "default",  # "ios"
                 "frontend_session_id": self.frontend_session_id,
                 "language": language,
-                "timezone": "CET",
+                # "timezone": "CET",
+                'last_backend_uuid': self.backend_uuid,
                 "attachments": attachments,
                 "search_focus": focus,
                 "frontend_uuid": str(uuid4()),
                 "mode": mode,
+                "prompt_source": "user",
+                "query_source": "home",
+                "is_incognito": False,
                 # "use_inhouse_model": True
                 "in_page": in_page,
                 "in_domain": in_domain
             }
         ])
-
         self.ws.send(ws_message)
 
     def search(self, query: str, mode: str = "concise", focus: str = "internet", attachments: list[str] = [], language: str = "en-GB", timeout: float = 30, in_page: str = None, in_domain: str = None) -> Iterable[Dict]:
@@ -655,29 +711,64 @@ class Perplexity:
             self.mode = mode
             self._s(query, mode, focus, attachments,
                     language, in_page, in_domain)
-
             start_time: float = time()
             while (not self.finished) or len(self.queue) != 0:
                 if timeout and time() - start_time > timeout:
                     self.finished = True
                     raise Exception("timeout")
                 if len(self.queue) != 0:
-                    yield self.queue.pop(0)
+                    break
+                    # yield self.queue.pop(0)
             return self.queue.pop(-1)
         except Exception as e:
             raise CustomException(str(e))
+        finally:
+            self.close()
 
-    def search_sync(self, query: str, mode: str = "concise", focus: str = "internet", attachments: list[str] = [], language: str = "en-GB", timeout: float = 30, in_page: str = None, in_domain: str = None) -> dict:
+    def search_sync(self, query: str, mode: str = "concise", focus: str = "internet", attachments: list[str] = [], language: str = "en-US", timeout: float = 30, in_page: str = None, in_domain: str = None) -> dict:
         try:
             self.mode = mode
-            self.create_account()
+            self.timeout = timeout
+            self.check_limit()
+            asyncio.run(self._ask(query, mode, focus, attachments,
+                                  language, in_page, in_domain))
+            re = self.queue.pop(-1)
+            try:
+                re['text'] = json.loads(re['text'])
+                if "answer" not in re['text']:
+                    answer = json.loads(re["text"][-1]["content"]["answer"])
+                    re['text'] = answer
+                del re["text"]["chunks"]
+                re["login"] = self.isLogin
+                re["cookies"] = self.get_cookies_dict()
+                re["email"] = self.email
+                re["query_count_copilot"] = self.copilot
+                self.backend_uuid = re["backend_uuid"]
+            except Exception as es:
+                raise Exception({
+                    "message": str(es),
+                    "last_json": re,
+                    "last_message": self.last_message
+                })
+            return re
+        except (Exception, CustomException) as e:
+            raise CustomException(e)
+        finally:
+            if self._close:
+                self.close()
+
+    def search_sync2(self, query: str, mode: str = "concise", focus: str = "internet", attachments: list[str] = [], language: str = "en-GB", timeout: float = 30, in_page: str = None, in_domain: str = None) -> dict:
+        try:
+            self.mode = mode
+            self.timeout = timeout
+            self.check_limit()
             self._s(query, mode, focus, attachments,
                     language, in_page, in_domain)
-
             start_time: float = time()
             while not self.finished:
-                if timeout and time() - start_time > timeout:
-                    self.finished = True
+                if self.soket_error:
+                    raise Exception(self.soket_error)
+                if self.timeout and time() - start_time > self.timeout:
                     raise Exception(
                         f"timeout & last message: {self.last_message}")
             re = self.queue.pop(-1)
@@ -687,24 +778,30 @@ class Perplexity:
                     answer = json.loads(re["text"][-1]["content"]["answer"])
                     re['text'] = answer
                 del re["text"]["chunks"]
+                re["login"] = self.isLogin
                 re["cookies"] = self.get_cookies_dict()
                 re["email"] = self.email
                 re["query_count_copilot"] = self.copilot
+                self.backend_uuid = re["backend_uuid"]
             except Exception as es:
-                raise Exception(
-                    f"get answer error: {str(es)} & last json: {str(re)} & last message: {self.last_message}")
+                raise Exception({
+                    "message": str(es),
+                    "last_json": re,
+                    "last_message": self.last_message
+                })
             return re
         except Exception as e:
-            raise CustomException(str(e))
+            raise CustomException(e)
         finally:
-            self.close()
+            if self._close:
+                self.close()
 
     def upload(self, filename: str) -> str:
         assert self.finished, "already searching"
         assert filename.split(".")[-1] in ["txt", "pdf"], "invalid file format"
 
         if filename.startswith("http"):
-            file = get(filename).content
+            file = self.session.get(filename).content
         else:
             with open(filename, "rb") as f:
                 file = f.read()
@@ -727,7 +824,7 @@ class Perplexity:
 
         assert not upload_data["rate_limited"], "rate limited"
 
-        post(
+        self.session.post(
             url=upload_data["url"],
             files={
                 "acl": (None, upload_data["fields"]["acl"]),
@@ -748,28 +845,39 @@ class Perplexity:
 
         return file_url
 
+    def getConversation(self, id):
+        self.threads()
+        conversation = filter(
+            lambda x: x["uuid"] == id, self.recent_conversations)
+        conversation = list(conversation)
+        if len(conversation) > 0:
+            return conversation[0]
+        raise CustomException("Conversation not found")
+
     def threads(self, query: str = None, limit: int = None) -> list[dict]:
-        assert self.email, "not logged in"
-        assert self.finished, "already searching"
+        try:
+            if not limit:
+                limit = 20
+            data: dict = {"version": "2.1", "source": "default",
+                          "limit": limit, "offset": 0}
+            if query:
+                data["search_term"] = query
 
-        if not limit:
-            limit = 20
-        data: dict = {"version": "2.1", "source": "default",
-                      "limit": limit, "offset": 0}
-        if query:
-            data["search_term"] = query
+            self._start_interaction()
+            ws_message: str = f"{self.base + self.n}" + dumps([
+                "list_ask_threads",
+                data
+            ])
 
-        self._start_interaction()
-        ws_message: str = f"{self.base + self.n}" + dumps([
-            "list_ask_threads",
-            data
-        ])
+            self.ws.send(ws_message)
 
-        self.ws.send(ws_message)
-
-        while not self.finished or len(self.queue) != 0:
-            if len(self.queue) != 0:
-                return self.queue.pop(0)
+            while not self.finished or len(self.queue) != 0:
+                if len(self.queue) != 0:
+                    self.recent_conversations = self.queue.pop(0)
+                    break
+            return self.recent_conversations
+        except Exception as e:
+            raise CustomException(e)
 
     def list_autosuggest(self, query: str = "", search_focus: str = "internet") -> list[dict]:
         assert self.finished, "already searching"
@@ -793,68 +901,53 @@ class Perplexity:
                 return self.queue.pop(0)
 
     def close(self) -> None:
-        if self.ws:
+        self.finished = True
+        if self.ws and hasattr(self.ws, 'sock') and self.ws.sock.connected:
             self.ws.close()
+            self.ws = None
+        if self.session:
+            self.session.close()
+            self.session = None
+        self.finished = True
+        self.last_message = None
         self.close_driver()
-
-        # if self.email:
-        #     with open(".perplexity_session", "r") as f:
-        #         perplexity_session: dict = loads(f.read())
-
-        #     perplexity_session[self.email] = self.session.cookies.get_dict()
-
-        #     with open(".perplexity_session", "w") as f:
-        #         f.write(dumps(perplexity_session))
-
-
-# email = "pefecu.jiyujori@theglossylocks.com"
-# email = "wu.matarice@everysimply.com"
-# cookies = "eyJBV1NBTEIiOiJcL3BYbWNMRWN6TmQ1cHhsQjI5NTdTT3M0REUzNUJYd2FKTVwvSSs4RCttbHF1WlJZd3dtR1JLandrT2N3TXYzNmxENldvVkxOa3pxc0x0THJWSUo1bFg4N2IzZCszSkM4XC9UYVdHcUNadWdSeU84UFhDTXZUT1JDWFVLck90RTZKTkxLZ2tzQkVSMkhmWllab3hwWWNzSEVoWXREam80MlJlTWltQ2xsMTZKdm1VZTN6SHFtcVwvWENEek5VcWlIdz09IiwiQVdTQUxCQ09SUyI6IlwvcFhtY0xFY3pOZDVweGxCMjk1N1NPczRERTM1Qlh3YUpNXC9JKzhEK21scXVaUll3d21HUktqd2tPY3dNdjM2bEQ2V29WTE5renFzTHRMclZJSjVsWDg3YjNkKzNKQzhcL1RhV0dxQ1p1Z1J5TzhQWENNdlRPUkNYVUtyT3RFNkpOTEtna3NCRVIySGZaWVpveHBZY3NIRWhZdERqbzQyUmVNaW1DbGwxNkp2bVVlM3pIcW1xXC9YQ0R6TlVxaUh3PT0iLCJfX1NlY3VyZS1uZXh0LWF1dGguY2FsbGJhY2stdXJsIjoiaHR0cHMlM0ElMkYlMkZ3d3cucGVycGxleGl0eS5haSUyRmFwaSUyRmF1dGglMkZzaWduaW4tY2FsbGJhY2slM0ZyZWRpcmVjdCUzRGRlZmF1bHRNb2JpbGVTaWduSW4iLCJfX1NlY3VyZS1uZXh0LWF1dGguc2Vzc2lvbi10b2tlbiI6ImV5SmhiR2NpT2lKa2FYSWlMQ0psYm1NaU9pSkJNalUyUjBOTkluMC4uX1IxZ09yTEJRZjFEcHlUMS45MzR3NzRzYlg5WkxxM1N2aDRXbzRmQ3V4RVJxTjgxMFlJdHFMdUxOblhmSnA1NjdvNGZYZ0I1TDhPUUdIbVdXS0hlY3I3ZFJfbU1wVFhJQV9FcFd2X3dkSXJOb0ZoeXZod1I0VEFSQTFJV1ZKRmhrdUlEbmduNWthV0l0ZC1hY0pVV25HMWZ6dHlDVHJNeHNYRUw4dXRvcG92dUxuVjRKQXREV29Yc29TRllfT2lWVDlhUlhqUW5oQlFhM2I0NERhdEpIVS1RVFVDdFlQMkxzNnRrVGFMRFEzUS5Udi0zeG56M3pTNklyWlVaOHVNdkN3IiwiX19jZl9ibSI6Ijh3WWRkZkRQVnhPUWIuQzBDVTFSQkxYemdYMVJkNDFCcmRnNUtEVEM2Tm8tMTcxMzQ0ODE1MC0xLjAuMS4xLUVRc0FwNTNzZVYwZklxbmJ6RGFxRjdUZlVwLlYwR1NYQ2pNWUpLbTJwcnpVRFJzNzVWN194bHo3NUNYYVZHel85Ql9HXzg1RzNZUzgwRlZZYmRrYlZnIiwiX19jZmxiIjoiMDJEaXVEeXZGTW1LNXA5alZiVm5NTlNLWVpoVUw5YUdtSjVabTFEQWhSY244IiwibmV4dC1hdXRoLmNzcmYtdG9rZW4iOiI2ZDU4ZWM0ZjIzZDMyMmZkODIyOTIyNGUzZGU0NmRmNzc1NzI5NWJiM2VmNTVjOTVlYmU5NDExODFjOGQzNjQyJTdDZjhjOTYyMWY1NmYwNjRjZjFmYTE4ZDNlZDA2Yjg2ZWY5MzBhM2ViNWJiMzhmNThlNGNkZWQ2YTM0Mzg1MjExMiJ9"
-# cookies = [{'domain': 'www.perplexity.ai', 'expiry': 1714123777, 'httpOnly': False, 'name': 'AWSALBCORS', 'path': '/', 'sameSite': 'None', 'secure': True, 'value': 'qU/l4kh0+V8n/9Oji0kUCUWqgbJxGqt/kdCVRuO9hV/uxae4H98iwUZRHLQ5yH3mQSi5hr160+0HaYzTdtB/d14DC37mpQ6HPUuhxuaGlqKU9dor4JWz5j64sfUuAfssSNKhtRsqcvrGPcB4BB9pqr11drGEe+Sjd9cM6y4yNXrH8dpeTumwCyxcl2eGCg=='}, {'domain': 'www.perplexity.ai', 'expiry': 1714123777, 'httpOnly': False, 'name': 'AWSALB', 'path': '/', 'sameSite': 'Lax', 'secure': False, 'value': 'qU/l4kh0+V8n/9Oji0kUCUWqgbJxGqt/kdCVRuO9hV/uxae4H98iwUZRHLQ5yH3mQSi5hr160+0HaYzTdtB/d14DC37mpQ6HPUuhxuaGlqKU9dor4JWz5j64sfUuAfssSNKhtRsqcvrGPcB4BB9pqr11drGEe+Sjd9cM6y4yNXrH8dpeTumwCyxcl2eGCg=='}, {'domain': '.perplexity.ai', 'expiry': 1748078966, 'httpOnly': False, 'name': '_ga_SH9PRBQG23', 'path': '/', 'sameSite': 'Lax', 'secure': False, 'value': 'GS1.1.1713518966.1.0.1713518966.0.0.0'}, {'domain': 'www.perplexity.ai', 'expiry': 1745054966, 'httpOnly': False, 'name': 'pplx.visitor-id', 'path': '/', 'sameSite': 'Lax', 'secure': False, 'value': 'a91a8d48-6af5-4ecc-b7ce-423943b3d3ed'}, {'domain': 'www.perplexity.ai', 'expiry': 1748078965, 'httpOnly': False, 'name': 'isCollapsed', 'path': '/', 'sameSite': 'Lax', 'secure': False,
-#                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                'value': 'false'}, {'domain': '.perplexity.ai', 'expiry': 1748078966, 'httpOnly': False, 'name': '_ga', 'path': '/', 'sameSite': 'Lax', 'secure': False, 'value': 'GA1.1.646725989.1713518967'}, {'domain': '.perplexity.ai', 'expiry': 1713520765, 'httpOnly': True, 'name': '__cf_bm', 'path': '/', 'sameSite': 'None', 'secure': True, 'value': 'hVbyKqCQsag2E_73ToFMrTsmzs5v0j5lKVqYBAw.7e0-1713518968-1.0.1.1-9wx3AbQdNrg1gcqKt8JcCr0NAwoH9yIVMZlBK2hlycr6ssnJMl9Sxhj9l.j1o5lbwTPyxGuQMvd2sB8A_RY84A'}, {'domain': 'www.perplexity.ai', 'httpOnly': True, 'name': '__Secure-next-auth.callback-url', 'path': '/', 'sameSite': 'Lax', 'secure': True, 'value': 'https%3A%2F%2Fwww.perplexity.ai%2Fapi%2Fauth%2Fsignin-callback%3Fredirect%3Dhttps%253A%252F%252Fwww.perplexity.ai'}, {'domain': 'www.perplexity.ai', 'expiry': 1713601765, 'httpOnly': True, 'name': '__cflb', 'path': '/', 'sameSite': 'None', 'secure': True, 'value': '02DiuDyvFMmK5p9jVbVnMNSKYZhUL9aGmjJHN9qoT8n1z'}, {'domain': 'www.perplexity.ai', 'httpOnly': True, 'name': 'next-auth.csrf-token', 'path': '/', 'sameSite': 'None', 'secure': True, 'value': '34eaf324f385f7198a1f4194d99ea686b3ee15328deb1e8260197eb3e7a1e6c3%7Caf9701678791a68a6e8e5d9b9fd3158905b42f74b0398fe3b068172dc1300a19'}]
 
 
 email = "wu.matarice@everysimply.com"
-cookies = {'AWSALB': '3tVrdmNqYBuIbQJX51ZBAHbfg66ZvNagJF88on1eW/j1WjsqrtCkIpKyNXvSTqojDyvs2GCt8RUccw7lRm8tvgDGn4lYAEcjxQI6cwpziAd22840XTRoFYbk1co0HExVvNCz9JErMOFn8Zn7nRuw4ikabZa/YqRWeWIoOXz7v1IpX7bZHpa1IcuKDVfFlw==', 'AWSALBCORS': '3tVrdmNqYBuIbQJX51ZBAHbfg66ZvNagJF88on1eW/j1WjsqrtCkIpKyNXvSTqojDyvs2GCt8RUccw7lRm8tvgDGn4lYAEcjxQI6cwpziAd22840XTRoFYbk1co0HExVvNCz9JErMOFn8Zn7nRuw4ikabZa/YqRWeWIoOXz7v1IpX7bZHpa1IcuKDVfFlw==', 'next-auth.csrf-token':
-           '2b13b47612a9ed3bddec1de8659d6b7764e479baee48b00171c08a5b956973bb%7Cc810c6bf74beafd263f715d275d754af29dba7cf113844049feef4be4d5aba4f', '__Secure-next-auth.callback-url': 'https%3A%2F%2Fwww.perplexity.ai%2Fapi%2Fauth%2Fsignin-callback%3Fredirect%3Dhttps%253A%252F%252Fwww.perplexity.ai', '__cflb': '02DiuDyvFMmK5p9jVbVnMNSKYZhUL9aGmEEcFk2EXiVDv', '__cf_bm': 'xVIMi6MRNGNxDnvAl_yZ4Zh3gwhNtsPctE.9Cr3daEs-1713556049-1.0.1.1-4JyyMVAkUg.KPkseJVaPsNYcKcwknh8k1gwtNNZ6Lcupxxj1ppeejHZQmp_sx7DqKP05dxazNpOS26E62YinZA'}
-# cookies = {'AWSALB': 'L8o8k2jA+1jzi2jN5nhpjJ6A7YduMOS0jBhnGvV4jg0gAKDB1vqvBsWcQMCOdiqtKpjEcNSBoMHudGwiGdrpofv2PFLWjPCII8DuJtr/JiUkymBNZXWRTDLpZcTeQi6AUtqgE2suw8rZTXrlaZ2Dq6vFqX4/0Q1cXMojXOoei8LyrdSoasxqvv+xUQk3kQ==', 'AWSALBCORS': 'L8o8k2jA+1jzi2jN5nhpjJ6A7YduMOS0jBhnGvV4jg0gAKDB1vqvBsWcQMCOdiqtKpjEcNSBoMHudGwiGdrpofv2PFLWjPCII8DuJtr/JiUkymBNZXWRTDLpZcTeQi6AUtqgE2suw8rZTXrlaZ2Dq6vFqX4/0Q1cXMojXOoei8LyrdSoasxqvv+xUQk3kQ==', 'next-auth.csrf-token': 'd11a7afa594cc323b39542e7ac5640401db13de6c21c3e01d731080556ade6b4%7C1134a842d8d4b64646c07a4d6bbc79003015505c964065990c2527892b364d04', '__Secure-next-auth.callback-url':
-#            'https%3A%2F%2Fwww.perplexity.ai%2Fapi%2Fauth%2Fsignin-callback%3Fredirect%3DdefaultMobileSignIn', '__cflb': '02DiuDyvFMmK5p9jVbVnMNSKYZhUL9aGmebyqfdFocbvc', '__Secure-next-auth.session-token': 'eyJhbGciOiJkaXIiLCJlbmMiOiJBMjU2R0NNIn0..740gG5RsUme7L_4f.xhKjBL8UcXAI-MIjOa7qGQN0ypFfiKwDlKz3nbMvIzZktYCZ9OY3TgxnrpLXUbImpN7JNHLasY3Nfjn3WUV7KD72nNTaQNd720alX0PujcN67xj7aN6P5J5KYWR99f_wk36UyS1-TZZ_V53hUcRMnBtvrXSZwSk2otE6Qzba3LDwgpVPq8oImYH1x1ftI9QU72l7c_R9Z82JjQxljhgDuG50Tg.jgO5Efmu0ZSNf4Adxs8A2w', '__cf_bm': 'BRYR.qPJ1CHYLmiP1haljS5DHKg9G2BiiMuRpjbSISU-1713556338-1.0.1.1-U9KND.fH0.TXHObtRlc1XNEag7VSOAcIfWSc8UyLRsZhSYZcSXVUC58YKldVW.CXIlZulV6b97HXVGXBwmxmEA'}
-cookies = "eyJBV1NBTEIiOiJcL3BYbWNMRWN6TmQ1cHhsQjI5NTdTT3M0REUzNUJYd2FKTVwvSSs4RCttbHF1WlJZd3dtR1JLandrT2N3TXYzNmxENldvVkxOa3pxc0x0THJWSUo1bFg4N2IzZCszSkM4XC9UYVdHcUNadWdSeU84UFhDTXZUT1JDWFVLck90RTZKTkxLZ2tzQkVSMkhmWllab3hwWWNzSEVoWXREam80MlJlTWltQ2xsMTZKdm1VZTN6SHFtcVwvWENEek5VcWlIdz09IiwiQVdTQUxCQ09SUyI6IlwvcFhtY0xFY3pOZDVweGxCMjk1N1NPczRERTM1Qlh3YUpNXC9JKzhEK21scXVaUll3d21HUktqd2tPY3dNdjM2bEQ2V29WTE5renFzTHRMclZJSjVsWDg3YjNkKzNKQzhcL1RhV0dxQ1p1Z1J5TzhQWENNdlRPUkNYVUtyT3RFNkpOTEtna3NCRVIySGZaWVpveHBZY3NIRWhZdERqbzQyUmVNaW1DbGwxNkp2bVVlM3pIcW1xXC9YQ0R6TlVxaUh3PT0iLCJfX1NlY3VyZS1uZXh0LWF1dGguY2FsbGJhY2stdXJsIjoiaHR0cHMlM0ElMkYlMkZ3d3cucGVycGxleGl0eS5haSUyRmFwaSUyRmF1dGglMkZzaWduaW4tY2FsbGJhY2slM0ZyZWRpcmVjdCUzRGRlZmF1bHRNb2JpbGVTaWduSW4iLCJfX1NlY3VyZS1uZXh0LWF1dGguc2Vzc2lvbi10b2tlbiI6ImV5SmhiR2NpT2lKa2FYSWlMQ0psYm1NaU9pSkJNalUyUjBOTkluMC4uX1IxZ09yTEJRZjFEcHlUMS45MzR3NzRzYlg5WkxxM1N2aDRXbzRmQ3V4RVJxTjgxMFlJdHFMdUxOblhmSnA1NjdvNGZYZ0I1TDhPUUdIbVdXS0hlY3I3ZFJfbU1wVFhJQV9FcFd2X3dkSXJOb0ZoeXZod1I0VEFSQTFJV1ZKRmhrdUlEbmduNWthV0l0ZC1hY0pVV25HMWZ6dHlDVHJNeHNYRUw4dXRvcG92dUxuVjRKQXREV29Yc29TRllfT2lWVDlhUlhqUW5oQlFhM2I0NERhdEpIVS1RVFVDdFlQMkxzNnRrVGFMRFEzUS5Udi0zeG56M3pTNklyWlVaOHVNdkN3IiwiX19jZl9ibSI6Ijh3WWRkZkRQVnhPUWIuQzBDVTFSQkxYemdYMVJkNDFCcmRnNUtEVEM2Tm8tMTcxMzQ0ODE1MC0xLjAuMS4xLUVRc0FwNTNzZVYwZklxbmJ6RGFxRjdUZlVwLlYwR1NYQ2pNWUpLbTJwcnpVRFJzNzVWN194bHo3NUNYYVZHel85Ql9HXzg1RzNZUzgwRlZZYmRrYlZnIiwiX19jZmxiIjoiMDJEaXVEeXZGTW1LNXA5alZiVm5NTlNLWVpoVUw5YUdtSjVabTFEQWhSY244IiwibmV4dC1hdXRoLmNzcmYtdG9rZW4iOiI2ZDU4ZWM0ZjIzZDMyMmZkODIyOTIyNGUzZGU0NmRmNzc1NzI5NWJiM2VmNTVjOTVlYmU5NDExODFjOGQzNjQyJTdDZjhjOTYyMWY1NmYwNjRjZjFmYTE4ZDNlZDA2Yjg2ZWY5MzBhM2ViNWJiMzhmNThlNGNkZWQ2YTM0Mzg1MjExMiJ9"
-
-# cookies = None
-# email = None
-# if __name__ == '__main__':
-#     perplexity = Perplexity(email=email, cookies=cookies,
-#                             debug=True)
-#     answer = perplexity.search_sync(
-#         "how to take a screenshot android?", "copilot")
-#     print(answer)
-
-
-#     # perplexity.close()
-
-# session = Session()
-# session.headers.update({
-#     "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/50.0.2661.102 Safari/537.36"
-# })
-# r = session.get("https://www.google.com/", impersonate="chrome")
-# print(r.request.headers)
-# print(session.headers)
-# print(r.cookies)
-
-# for k, v in r.headers.items():
-#     print(f"{k} => {v}")
-
-# print()
-# print(r.text)
-
-# Create an instance of CustomUCWebDriver
-# options = uc.ChromeOptions()
-# options.add_argument("--headless=new")  # for hidden mode
-# driver = CustomUCWebDriver(options=options)
-
-# # Make a POST request and capture the response
-# response_data = driver.post("https://example.com", '{"key": "value"}')
-
-# # Print the response data
-# print(response_data)
+email = "lobeyi.moda@theglossylocks.com"
+conversationId = "9f4fa3dd-06d9-4bf7-86b0-e8888529c2d35"
+conversationId = None
+cookies = "eyJBV1NBTEIiOiJDR0VRMUlaNnJ4K3lZUlwveG5QeE5RN25tUE83VFlMbllSY0xWVWRBN0tZMkFGVllDUjd3ZG1WZHNFclFUNVk0VkV1YSt0SiszdUd5MUhPWlgrOFNzQTlnMW9GdVBRNFNTMThoRFFYeHNqUGhaa3l2UFdPSzVuMWZKTk5hM01ydkxXZHhnN0ZuOGxCc01SV2tqOFpVZElKUGl0Z1laNmFVNUZuM2JPclwvaVEwbW9LZGZPb3BLNTE3cVd2NWhubkE9PSIsIkFXU0FMQkNPUlMiOiJDR0VRMUlaNnJ4K3lZUlwveG5QeE5RN25tUE83VFlMbllSY0xWVWRBN0tZMkFGVllDUjd3ZG1WZHNFclFUNVk0VkV1YSt0SiszdUd5MUhPWlgrOFNzQTlnMW9GdVBRNFNTMThoRFFYeHNqUGhaa3l2UFdPSzVuMWZKTk5hM01ydkxXZHhnN0ZuOGxCc01SV2tqOFpVZElKUGl0Z1laNmFVNUZuM2JPclwvaVEwbW9LZGZPb3BLNTE3cVd2NWhubkE9PSJ9"
+cookies = {
+    "AWSALB": "7N7zAJUi2ByjukOEEzAxeua6dqxJN2a4J435Yc194pVkco/ipiNd4jfT9BR3pr8vdE0KqdguUN7ZDaejbj67UCD9JVmnvkAvUq8uuxwm98VfMwQqc1KCMWasaBcZvEFK2Za67974yPNFpT8ysXa1+rOWWi3I7lcylxcJ0dWEDGJ3bTpUYtddLYd91dpS1w==",
+    "AWSALBCORS": "7N7zAJUi2ByjukOEEzAxeua6dqxJN2a4J435Yc194pVkco/ipiNd4jfT9BR3pr8vdE0KqdguUN7ZDaejbj67UCD9JVmnvkAvUq8uuxwm98VfMwQqc1KCMWasaBcZvEFK2Za67974yPNFpT8ysXa1+rOWWi3I7lcylxcJ0dWEDGJ3bTpUYtddLYd91dpS1w==",
+    "__Secure-next-auth.session-token": "eyJhbGciOiJkaXIiLCJlbmMiOiJBMjU2R0NNIn0..h5weT02qIvTc8Hqf.JEfLCw6wc6P3WXKH88CCrVm2pI0o--z9zwUcH9EQS9ZY25zhXNm0Mqq5JMDeKjFCS4IYg7rkdvvDPpQSECZwKbdN37LFk8f_6BkXcbWU2R8DNzErJpu5nQLr3X_5KVZGcyPG3JYhl3kSAEMXS1Ffl3jyo60Urpt3lINKwNAXG-wdYyG3H-YrYUkC5w_As9KAlXRo2DUbHmwGGfMy-vLqLQiWpA._CRYqzEur6yMQujTOv6Kkw",
+    "__cf_bm": "P33UInOSP1bTpEVvje93wui52b9kWJvLmGkFe3gegeY-1716864035-1.0.1.1-qcQ591ioIBgP4bMqS4pOlAs.xhF6iOj8J0CL.6Jaw53eQXnMVnwFN4HOLEUoZ4_BYKIg1b2PX1KhYzAcN4YFrg",
+    "__cflb": "02DiuDyvFMmK5p9jVbVnMNSKYZhUL9aGkRuNmGVCyh1uW",
+    "next-auth.callback-url": "https%3A%2F%2Fwww.perplexity.ai%2Fapi%2Fauth%2Fsignin-callback%3Fredirect%3DdefaultMobileSignIn",
+    "next-auth.csrf-token": "ee1c20d0586b6d784f222b4076650039d468dec7f717ca54d608933a79e2beae%7C7d78595ba336e0a52ed3b1513993257be8ba627151b09fb2090ee2e7229d69d0",
+    "pplx.visitor-id": "e9a15c14-b2d4-480e-b523-e687d04996a7"
+}
+# cookies = "eyJBV1NBTEIiOiJXTDVHYlBHcGRNUHo4RTRXXC8zaW5QWDc3bmJmYk16cVcxbmJ3dXNhdkFWREtRdFVqN1lBT2VENEhxMjc5VFVoaTd2NEJadFFYcE5cL0lNaENMZXRua3YyUmNIaU93Q2tGR2I1TjNKNFZ3WTlhVm56MldqQWRxYVlYY1IyamFsQzlKNlV3ZnBLXC9jRzlIRGxVb3h6OW5PRXd0aUlMenZpd2piVGJxVEZCcDNydStRcE1tZUVFb3QyY2Iyenhvcmx3PT0iLCJBV1NBTEJDT1JTIjoiV0w1R2JQR3BkTVB6OEU0V1wvM2luUFg3N25iZmJNenFXMW5id3VzYXZBVkRLUXRVajdZQU9lRDRIcTI3OVRVaGk3djRCWnRRWHBOXC9JTWhDTGV0bmt2MlJjSGlPd0NrRkdiNU4zSjRWd1k5YVZuejJXakFkcWFZWGNSMmphbEM5SjZVd2ZwS1wvY0c5SERsVW94ejluT0V3dGlJTHp2aXdqYlRicVRGQnAzcnUrUXBNbWVFRW90MmNiMnp4b3Jsdz09IiwiX19TZWN1cmUtbmV4dC1hdXRoLmNhbGxiYWNrLXVybCI6Imh0dHBzJTNBJTJGJTJGd3d3LnBlcnBsZXhpdHkuYWkiLCJfX1NlY3VyZS1uZXh0LWF1dGguc2Vzc2lvbi10b2tlbiI6ImV5SmhiR2NpT2lKa2FYSWlMQ0psYm1NaU9pSkJNalUyUjBOTkluMC4uZVlGYkdKdWRsaXdCOHRZYS5mMi1vbEpwQmNFTWNwU3YzRHlFcFA3ZFc5dTUxaE1jU0pJYnVIWjMybUxabXp5MkVPM2VBT3BVZ1RUa3BqWndlaTFjbzIwUWczdzlWMF9uQmxYeU9VLVZDQ3VDMUpkSHZuMFBhYzB6SXp1WGpmTGVFRFBMR05LbjdUS0dBVDlCRm1KdkRFa3YxRzlJWDVXOUNISHp0b2ttT1plQnZMLUE2T3BGSndEb0NiM2l2UHNHdUZLVGZiMXpoV1lUQlpYWGVhWTU3dWV0czZVZDF5a0JJalYycUNYSTQ4Uy1wZ1RHTHhnLklFM3oyVmh6M0RSNU1jMVZXTTRDTlEiLCJfX2NmX2JtIjoidVNJaXc2NEdjUWVsRmx2aG80RmRwa01QRTFRQXdmSHYzV05DZ3BWY1RWMC0xNzExODQ2MTM2LTEuMC4xLjEtNWhfbldIMXViTTFsc01mdTJ2M2FqMEl4Q09YT3ltNGRpWDZYdDRGcTFYQzZvRE9JRURqdlc5R0hNeG1IaURVcWFNbHUwdzRhZy5mMGtuTXNFNmJyNVEiLCJfX2NmbGIiOiIwMkRpdUR5dkZNbUs1cDlqVmJWbk1OU0tZWmhVTDlhR21qRzhFWWY0NzhDengiLCJuZXh0LWF1dGguY3NyZi10b2tlbiI6ImE2MTE2ZGMxMGM5OWQ1ODAzNmNjMDNiMTA0YjdiMjE3MmM2NTQ3ZWY1NGVlMDM0MmFiNTExOWQ1ZGY0M2I2MTYlN0M5OTQ3ZDZjYjYwNDI3MmI3ZDJmYTQyNGQ3YzBkZjVkZDMxMTM3ZmQ1NTlmMWU0YWNjZTMyNmVlZDk3MjQ3YzlhIn0="
+if __name__ == '__main__':
+    perplexity = Perplexity()
+    answer = perplexity.init(debug=True, create=True,
+                             email=email, cookies=cookies)
+    # answer = perplexity.init(email=email, cookies=cookies,
+    #                          debug=True, conversationId=conversationId)
+    # asyncio.run(perplexity._ask("how are you?"))
+    # answer = perplexity.getConversation(conversationId)
+    # answer = perplexity.threads()
+    # c = perplexity.get_cookies_dict()
+    # perplexity.close()
+    try:
+        # raise CustomException({
+        #     "message": "Exceeded completions",
+        #     "email": perplexity.email,
+        #     "cookies": perplexity.get_cookies_dict(),
+        # })
+        answer = perplexity.search_sync(
+            "do dogs get tired of barking")
+        print(answer)
+    except CustomException as e:
+        print(e.getJSON())

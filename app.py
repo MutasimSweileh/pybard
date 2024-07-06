@@ -3,6 +3,7 @@ import os
 from flask import Flask, Request, jsonify, make_response, request
 from flask_httpauth import HTTPBasicAuth
 from captcha import Captcha
+from exceptions import CustomException
 import perplexity as perplexityapi
 from werkzeug.security import generate_password_hash, check_password_hash
 from dotenv import load_dotenv
@@ -125,28 +126,31 @@ def requesta():
 @app.route("/perplexity", methods=['POST', 'GET'])
 @auth.login_required
 def perplexity():
-    data = {**request.form, **request.args}
+    data = get_fix_form(request)
     sessionKey = data.get("sessionKey", None)
     conversationId = data.get("conversationId", None)
+    focus = data.get("focus", "internet")
     debug = data.get("debug", False)
     use_driver = data.get("use_driver", False)
-    focus = data.get("focus", "internet")
     prompt = data.get("prompt", None)
-    mode = data.get("mode", "copilot")
+    mode = data.get("mode", "concise")
     email = data.get("email", None)
     try:
-        perplexity = perplexityapi.Perplexity(
-            cookies=sessionKey, email=email, debug=debug, use_driver=use_driver)
-        answer = perplexity.search_sync(prompt, mode=mode, focus=focus)
+        _perplexity = perplexityapi.Perplexity()
+        _perplexity.init(cookies=sessionKey, email=email,
+                         debug=debug, use_driver=use_driver, conversationId=conversationId)
+        answer = _perplexity.search_sync(prompt, mode=mode, focus=focus)
         data = {
             'success': True,
             'data': answer
         }
-    except perplexityapi.CustomException as e:
+    except CustomException as e:
         data = {
             'success': False,
             **e.getJSON()
         }
+    finally:
+        _perplexity.close()
     return jsonify(data)
 
 
