@@ -109,8 +109,8 @@ def requesta():
         d = {
             'success': True,
             "status_code": response.status_code,
-            "headers": get_headers_dict(response.headers),
-            "cookies": response.cookies.get_dict(),
+            "headers": response.headers,
+            "cookies": response.cookies,
             'data': response.text
         }
     except Exception as e:
