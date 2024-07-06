@@ -59,6 +59,15 @@ def _get_cookies_str(dcookies: dict) -> str:
     return cookies[:-2]
 
 
+def get_headers_dict(self, headers):
+    headers = {}
+    for k, v in headers.items():
+        k = map(lambda x: x.title(), k.split("-"))
+        k = "-".join(k)
+        headers[k] = v
+    return headers
+
+
 def get_http_client(*args, **kwargs) -> tls_client.Session:
     headers = kwargs.get("headers", {
         "Referer": "https://duckduckgo.com/"
