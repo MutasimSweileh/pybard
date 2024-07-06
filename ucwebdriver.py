@@ -1,6 +1,6 @@
 
 import random
-from curl_cffi.requests import Session, get, post
+# from curl_cffi.requests import Session, get, post
 from time import sleep, time
 from threading import Thread
 from json import loads, dumps
@@ -9,6 +9,8 @@ from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.common.by import By
 from dotenv import load_dotenv
+
+from utils import get_http_client
 load_dotenv()
 
 _useragent_list = [
@@ -155,9 +157,9 @@ class UC_Webdriver:
 
     def http_get(self, url, brower="chrome", headers={}):
         try:
-            r = Session()
+            r = get_http_client()
             r.headers.update(headers)
-            r = r.get(url, impersonate=brower)
+            r = r.get(url)
             if r.status_code == 200:
                 html = r.text
                 if not self.in_str(html):
@@ -199,7 +201,6 @@ class UC_Webdriver:
                 self.driver = None
             except:
                 pass
-
 
             # print("close_driver!")
 if __name__ == "__main__":
