@@ -9,7 +9,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from dotenv import load_dotenv
 
 from ucwebdriver import UC_Webdriver
-from utils import _get_cookies_str, fix_headers, get_headers_dict, get_http_client
+from utils import _get_cookies_str, fix_headers, get_dict, get_headers_dict, get_http_client
 load_dotenv()
 
 app = Flask(__name__)
@@ -141,8 +141,8 @@ def requesta():
         d = {
             'success': True,
             "status_code": response.status_code,
-            "headers": response.headers,
-            "cookies": response.cookies,
+            "headers": get_dict(response.headers),
+            "cookies": get_dict(response.cookies),
             'data': response.text
         }
     except Exception as e:

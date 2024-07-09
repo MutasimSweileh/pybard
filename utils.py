@@ -71,7 +71,8 @@ def get_headers_dict(headers):
 
 def get_http_client(*args, **kwargs) -> tls_client.Session:
     headers = kwargs.get("headers", {
-        "Referer": "https://duckduckgo.com/"
+        "Referer": "https://duckduckgo.com/",
+        "User-Agent": get_useragent()
     })
     brower = kwargs.get("brower", "chrome_120")
     headers = fix_headers(headers)
