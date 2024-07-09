@@ -1,28 +1,12 @@
 
-import random
-# from curl_cffi.requests import Session, get, post
+from nodriver import Browser, start
+import asyncio
 from time import sleep, time
-from threading import Thread
-from json import loads, dumps
 import undetected_chromedriver as uc
-from selenium.webdriver.chrome.service import Service
-from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.common.by import By
+from utils import get_useragent, http_get, save_html
 from dotenv import load_dotenv
-
-from utils import get_http_client
 load_dotenv()
-
-_useragent_list = [
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:66.0) Gecko/20100101 Firefox/66.0',
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/111.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/111.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/111.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/111.0.0.0 Safari/537.36 Edg/111.0.1661.62',
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/111.0'
-]
-
 
 class CustomUCWebDriver(uc.Chrome):
     def post(self, url, data):
@@ -36,10 +20,6 @@ class CustomUCWebDriver(uc.Chrome):
             }})
             .then(response => response.text());
         """)
-
-    def get_useragent(self):
-        """Returns a random user agent from the list."""
-        return random.choice(_useragent_list)
 
     def user_agent(self):
         return self.execute_script("return window.navigator.userAgent;")
@@ -76,55 +56,36 @@ class UC_Webdriver:
     def __init__(self, headless=True, user_agent=None):
         self.headless = headless
         self.driver = None
-        self.user_agent = user_agent
+        self.browser = None
+        self.page = None
+        self.error = None
+        self.user_agent = user_agent if user_agent else get_useragent()
+        self.loop = asyncio.new_event_loop()
 
-    def get_driver(self, **kwargs) -> CustomUCWebDriver:
+    def run_task(self, fn):
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        task = loop.create_task(fn())
+        loop.run_until_complete(task)
+        result = task.result()
+        return result
+
+    def get_driver(self, **kwargs) -> Browser:
         headless = kwargs.get("headless", self.headless)
         user_agent = kwargs.get("user_agent", self.user_agent)
+        browser_args = kwargs.get("browser_args", [])
         if not self.driver:
-            chrome_options = uc.ChromeOptions()
-            service = Service()
-            # service = Service(executable_path=ChromeDriverManager().install())
-            driver_executable_path = ChromeDriverManager().install()
-            # driver_executable_path = None
-            # print(driver_executable_path)
-            if headless:
-                chrome_options.add_argument('--headless=new')
-                chrome_options.add_argument("--headless")
-                chrome_options.add_argument("--incognito")
-                chrome_options.add_argument("--disable-application-cache")
-                chrome_options.add_argument("--disable-setuid-sandbox")
-                chrome_options.add_argument(
-                    "--window-size=%s,%s" % (
-                        1440, 1880
-                    )
+            async def _():
+                if user_agent or headless:
+                    browser_args.append(f"--user-agent={user_agent}")
+                self.driver = await start(
+                    headless=headless,
+                    browser_args=browser_args,
                 )
-            chrome_options.add_argument("--start-maximized")
-            chrome_options.add_argument('--disable-dev-shm-usage')
-            chrome_options.add_argument('--disable-gpu')
-            chrome_options.add_argument('--ignore-certificate-errors')
-            chrome_options.add_argument('--no-sandbox')
-            chrome_options.add_argument("--disable-browser-side-navigation")
-            chrome_options.add_argument("--disable-save-password-bubble")
-            chrome_options.add_argument("--disable-single-click-autofill")
-            chrome_options.add_argument("--allow-file-access-from-files")
-            chrome_options.add_argument("--disable-prompt-on-repost")
-            chrome_options.add_argument("--dns-prefetch-disable")
-            chrome_options.add_argument("--disable-translate")
-            chrome_options.add_argument(
-                "--disable-backgrounding-occluded-windows")
-            chrome_options.add_argument(
-                "--disable-client-side-phishing-detection")
-            chrome_options.add_argument("--disable-oopr-debug-crash-dump")
-            chrome_options.add_argument("--disable-top-sites")
-            chrome_options.add_argument("--ash-no-nudges")
-            chrome_options.add_argument("--no-crash-upload")
-            chrome_options.add_argument("--deny-permission-prompts")
-            if user_agent:
-                chrome_options.add_argument(f"--user-agent={user_agent}")
-            self.driver = CustomUCWebDriver(
-                headless=headless, use_subprocess=True, enable_cdp_events=True, options=chrome_options, driver_executable_path=driver_executable_path)
-
+                return self.driver
+            self.run_task(_)
+            # print(dr)
+            # page = await browser.get("https://www.chewy.com/")
         return self.driver
 
     def in_str(self, string, arr=None, lower=True):
@@ -155,34 +116,54 @@ class UC_Webdriver:
                 return value
         return False
 
-    def http_get(self, url, brower="chrome", headers={}):
-        try:
-            r = get_http_client()
-            r.headers.update(headers)
-            r = r.get(url)
-            if r.status_code == 200:
-                html = r.text
-                if not self.in_str(html):
-                    return html
-        except:
-            pass
-        return None
+
+    def html(self, url, **kwargs):
+        timeout = kwargs.get("timeout", 3)
+        wait_for = kwargs.get("wait_for", None)
+        driver = self.get_driver(**kwargs)
+
+        async def _():
+            try:
+                page = await driver.get(url)
+                await page.sleep(timeout)
+                if wait_for:
+                    await page.wait_for(selector=wait_for, timeout=20)
+                html = await page.get_content()
+                return html
+            finally:
+                await page.close()
+                driver.stop()
+
+        return self.run_task(_)
 
     @classmethod
     def get_html(cls, url, **kwargs):
         html = ""
+        use_browser = kwargs.get("use_browser", False)
+        wait_for = kwargs.get("wait_for", False)
+        headers = kwargs.get("headers", {})
         try:
-            # c = cls()
-            # html = c.dr.get_html(url, kwargs)
-            # er = c.in_str(html)
-            # if er:
-            #     raise Exception(er)
-            return None
+            c = cls()
+            if not use_browser and not wait_for:
+                html = http_get(url, headers)
+                if html:
+                    return html
+            html = c.html(url, **kwargs)
+            er = c.in_str(html)
+            if er:
+                raise Exception(er)
+            # html = {
+            #     "success": True,
+            #     "html": html
+            # }
         except Exception as e:
             print("Get html error:", str(e))
-            html = ""
-        # finally:
-        #     c.close_driver()
+            # html = {
+            #     "success": False,
+            #     "message": str(e)
+            # }
+        finally:
+            c.close_driver()
         return html
 
     def driver_cookies(self):
@@ -202,8 +183,10 @@ class UC_Webdriver:
             except:
                 pass
 
+
             # print("close_driver!")
 if __name__ == "__main__":
-    d = UC_Webdriver.get_html("https://www.chewy.com/new-age-pet-ecoflex-mojave-reptile/dp/288127",
-                              headless=False, use_browser=True, timeout=50000)
+
+    d = UC_Webdriver.get_html("https://www.chewy.com/bones-chews-made-in-usa-roasted/dp/363470",
+                              headless=True, use_browser=True, wait_for=".chewy-logo")
     print(d)

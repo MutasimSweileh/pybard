@@ -8,6 +8,7 @@ import perplexity as perplexityapi
 from werkzeug.security import generate_password_hash, check_password_hash
 from dotenv import load_dotenv
 
+from ucwebdriver import UC_Webdriver
 from utils import _get_cookies_str, fix_headers, get_headers_dict, get_http_client
 load_dotenv()
 
@@ -54,6 +55,36 @@ def verify_password(username, password):
     if username in users and \
             check_password_hash(users.get(username), password):
         return username
+
+
+@app.route("/get_html", methods=['POST', 'GET'])
+@auth.login_required
+def get_html():
+    data = get_fix_form(request)
+    url = data.get("url", None)
+    _json = data.get("json", False)
+    if not url or url == "undefined":
+        return not_found(None)
+    del data["url"]
+    try:
+        html = UC_Webdriver.get_html(url, **data)
+        if _json:
+            if not html:
+                raise Exception("we could't fetch url!")
+            return jsonify({
+                'success': True,
+                'html': html
+            })
+        # html = openai.uc_dr.get_html(url,data)
+        # html = openai.dr.get_html(url, data)
+        return html
+    except Exception as e:
+        if _json:
+            return jsonify({
+                'success': False,
+                'message': str(e)
+            })
+    return ""
 
 
 @app.route("/captcha", methods=['POST', 'GET'])

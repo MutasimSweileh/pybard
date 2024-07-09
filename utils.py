@@ -5,6 +5,7 @@ import random
 import re
 from urllib.parse import urlparse
 from bs4 import BeautifulSoup
+from requests import Response
 from constants import DELIMETER
 import pyreqwest_impersonate as pri  # type: ignore
 import tls_client
@@ -93,6 +94,69 @@ def get_http_client(*args, **kwargs) -> tls_client.Session:
     session.timeout_seconds = timeout
     session.headers.update(headers)
     return session
+
+
+def get_cookies_dict(responce: Response):
+    cookies = responce.cookies
+    if hasattr(cookies, "get_dict"):
+        return cookies.get_dict()
+    return {k: v for k, v in cookies.items()}
+
+
+def get_dict(responce: Response):
+    headers = responce
+    if hasattr(headers, "get_dict"):
+        return headers.get_dict()
+    return {k: v for k, v in headers.items()}
+
+
+def get_headers_dict(responce: Response):
+    headers = responce.headers
+    if hasattr(headers, "get_dict"):
+        return headers.get_dict()
+    return {k: v for k, v in headers.items()}
+
+
+def in_str(self, string, arr=None, lower=True):
+    if not string:
+        return False
+    if not arr:
+        arr = [
+            "Something went wrong on our end",
+            "Enter the characters you see below",
+            "503 Service Unavailable",
+            "Attention Required!",
+            "We are checking your browser",
+            "Your client does not have permission",
+            "Our systems have detected unusual traffic",
+            "Enter the characters you see below",
+            "make sure you're not a robot",
+            ".well-known/captcha",
+        ]
+    if not isinstance(arr, list):
+        arr = [arr]
+    for value in arr:
+        if not value:
+            continue
+        if lower:
+            string = string.lower()
+            value = value.lower()
+        if string.find(value) != -1 or value.find(string) != -1:
+            return value
+    return False
+
+
+def http_get(url, headers={}):
+    try:
+        r = get_http_client(headers=headers)
+        r = r.get(url)
+        if r.status_code == 200:
+            html = r.text
+            if not in_str(html):
+                return html
+    except:
+        pass
+    return None
 
 
 def get_useragent():
