@@ -1,27 +1,15 @@
-import asyncio
-# from twisted.internet import ssl, reactor
-# from autobahn.asyncio.websocket import WebSocketClientFactory, WebSocketClientProtocol, connectWS
 import base64
 import json
-import logging
 import os
 import random
 import re
 from urllib.parse import urlparse
-
 from bs4 import BeautifulSoup
-
+from requests import Response
 from constants import DELIMETER
-# import tls_client
 import pyreqwest_impersonate as pri  # type: ignore
-from curl_cffi import CurlWsFlag
-from curl_cffi.requests import Session, WebSocket, Response
-import requests
 import tls_client
-
-from http_client import HttpClient
-
-logging.basicConfig(level=logging.ERROR)
+import requests
 
 
 def fix_headers(r):
@@ -72,22 +60,29 @@ def _get_cookies_str(dcookies: dict) -> str:
     return cookies[:-2]
 
 
-def get_http_client(*args, **kwargs) -> HttpClient:
-    headers = kwargs.get("headers", {})
-    if not headers:
-        headers = {
-            "Referer": "https://duckduckgo.com/",
-            "User-Agent": get_useragent()
-        }
+def get_headers_dict(headers):
+    headers = {}
+    for k, v in headers.items():
+        k = map(lambda x: x.title(), k.split("-"))
+        k = "-".join(k)
+        headers[k] = v
+    return headers
+
+
+def get_http_client(*args, **kwargs) -> tls_client.Session:
+    headers = kwargs.get("headers", {
+        "Referer": "https://duckduckgo.com/",
+        "User-Agent": get_useragent()
+    })
     brower = kwargs.get("brower", "chrome_120")
     headers = fix_headers(headers)
     timeout = kwargs.get("timeout", 30)
-    session = HttpClient(**kwargs)
-    # session.timeout_seconds = timeout
-    # session = Session(impersonate="chrome124", timeout=timeout)
-    # session.headers.update(headers)
-    return session
-
+    # return requests.Session()
+    # session = tls_client.Session(
+    #     client_identifier=brower,
+    #     random_tls_extension_order=True,
+    #     debug=False
+    # )
     return pri.Client(
         headers=headers,
         timeout=timeout,
@@ -97,6 +92,9 @@ def get_http_client(*args, **kwargs) -> HttpClient:
         follow_redirects=False,
         verify=False
     )
+    session.timeout_seconds = timeout
+    session.headers.update(headers)
+    return session
 
 
 def get_cookies_dict(responce: Response):
@@ -120,22 +118,45 @@ def get_headers_dict(responce: Response):
     return {k: v for k, v in headers.items()}
 
 
+def in_str(self, string, arr=None, lower=True):
+    if not string:
+        return False
+    if not arr:
+        arr = [
+            "Something went wrong on our end",
+            "Enter the characters you see below",
+            "503 Service Unavailable",
+            "Attention Required!",
+            "We are checking your browser",
+            "Your client does not have permission",
+            "Our systems have detected unusual traffic",
+            "Enter the characters you see below",
+            "make sure you're not a robot",
+            ".well-known/captcha",
+        ]
+    if not isinstance(arr, list):
+        arr = [arr]
+    for value in arr:
+        if not value:
+            continue
+        if lower:
+            string = string.lower()
+            value = value.lower()
+        if string.find(value) != -1 or value.find(string) != -1:
+            return value
+    return False
+
+
 def http_get(url, headers={}):
-    r = None
-    html = None
     try:
         r = get_http_client(headers=headers)
-        rs = r.get(url)
-        if rs.status_code == 200:
-            if not in_str(rs.text):
-                html = rs.text
-        r.close()
-        return html
-    except Exception as e:
-        print(f"http_get: {e}")
-    finally:
-        if r:
-            r.close()
+        r = r.get(url)
+        if r.status_code == 200:
+            html = r.text
+            if not in_str(html):
+                return html
+    except:
+        pass
     return None
 
 
@@ -197,35 +218,6 @@ def as_json(message: dict) -> str:
     return json.dumps(message) + DELIMETER
 
 
-def in_str(string, arr=None, lower=True):
-    if not string:
-        return False
-    if not arr:
-        arr = [
-            # "Something went wrong on our end",
-            "Enter the characters you see below",
-            "503 Service Unavailable",
-            "Attention Required!",
-            "We are checking your browser",
-            "Your client does not have permission",
-            "Our systems have detected unusual traffic",
-            "Enter the characters you see below",
-            "make sure you're not a robot",
-            ".well-known/captcha",
-        ]
-    if not isinstance(arr, list):
-        arr = [arr]
-    for value in arr:
-        if not value:
-            continue
-        if lower:
-            string = string.lower()
-            value = value.lower()
-        if string.find(value) != -1 or value.find(string) != -1:
-            return value
-    return False
-
-
 def cookies_as_dict(cookies: str) -> dict:
     """
     Convert a string of cookies into a dictionary.
@@ -241,38 +233,3 @@ def check_if_url(string: str) -> bool:
     if parsed_string.scheme and parsed_string.netloc:
         return True
     return False
-
-
-# class MyClientProtocol(WebSocketClientProtocol):
-#     def onConnect(self, response):
-#         print("Server connected: {0}".format(response.peer))
-
-#     def onOpen(self):
-#         print("WebSocket connection open.")
-
-#     def onMessage(self, payload, isBinary):
-#         print("Received message: {0}".format(payload.decode('utf8')))
-
-#     def onClose(self, wasClean, code, reason):
-#         print("WebSocket connection closed: {0}".format(reason))
-
-
-# if __name__ == '__main__':
-#     url = "wss://your.websocket.server/path"
-#     hostname = "your.websocket.server"
-
-#     factory = WebSocketClientFactory(url)
-#     factory.protocol = MyClientProtocol
-
-#     context_factory = ssl.optionsForClientTLS(hostname)
-#     connectWS(factory, context_factory)
-# factory.M
-#     reactor.run()
-
-# response = get_http_client().get("https://scrapeops.io/app/headers")
-
-# print("Status:", response.status_code)
-# print("Headers:", response.headers)
-# print("Cookies:", response.cookies.get_dict())
-
-# save_html(response.text)

@@ -132,12 +132,14 @@ def requesta():
         pas["json"] = d
     elif d:
         pas["data"] = d
+    session = None
     try:
         session = get_http_client(timeout=timeout, brower=brower)
         if method == "GET":
             response = session.get(**pas)
         else:
             response = session.post(**pas)
+        session.close()
         d = {
             'success': True,
             "status_code": response.status_code,
@@ -151,6 +153,9 @@ def requesta():
             'success': False,
             'error': m
         }
+    finally:
+        if session:
+            session.close()
     return jsonify(d)
 
 

@@ -1,15 +1,10 @@
-# from curl_cffi import requests as curl
 import websocket
 import websockets.client as websockets
 from websockets.client import WebSocketClientProtocol
-import ast
 import asyncio
-from utils import as_json, check_if_url, cookies_as_dict, get_http_client
-import ast
-import warnings
+from utils import as_json, check_if_url, cookies_as_dict, get_http_client, get_useragent
 import base64
 import json
-import os
 from typing import Iterable, Dict
 from gmail import temp_mail
 from os import listdir
@@ -19,7 +14,6 @@ from threading import Thread
 from json import loads, dumps
 from random import getrandbits
 from websocket import WebSocketApp
-# from requests import Session, get, post
 import undetected_chromedriver as uc
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
@@ -37,6 +31,7 @@ class Perplexity:
         # self.session: Session = Session()
         self.csrfToken = None
         self.driver = None
+        self.loop = None
         self.isLogin = False
         self.email: str = email
         self.use_driver = use_driver
@@ -46,6 +41,7 @@ class Perplexity:
         self.upload_limit = 3
         self.mode = None
         self.timeout = 30
+        self.socket = None
         self.wss_client: WebSocketClientProtocol | None = None
         self.user_agent: dict = {
             "User-Agent": "Ask/2.4.1/224 (iOS; iPhone; Version 17.1) isiOSOnMac/False", "X-Client-Name": "Perplexity-iOS"}
@@ -190,19 +186,20 @@ class Perplexity:
         if self.isLogin:
             self.get_user_settings()
         # self.ws: WebSocketApp = self._init_websocket()
-        # self.ws_thread: Thread = Thread(target=self.ws.run_forever, kwargs={
-        #     "suppress_origin": True}).start()
-        # while self.ws and not (self.ws.sock and self.ws.sock.connected):
+        # self.ws_thread: Thread = Thread(target=self.ws.run_forever).start()
+        # while self.ws and hasattr(self.ws, "sock") and not (self.ws.sock and self.ws.sock.connected):
         #     if self.soket_error:
         #         break
         #     sleep(0.01)
         return True
 
     def get_session(self):
+        # self.session = Session(impersonate="chrome124")
         self.session = get_http_client()
-        self.session.headers.update({
-            "X-Client-Name": "Perplexity-iOS"
-        })
+        # self.session.headers.update({
+        #     "User-Agent": get_useragent(),
+        #     # "X-Client-Name": "Perplexity-iOS",
+        # })
         # self.session.headers.update(self.user_agent)
         try:
             if self.cookies:
@@ -364,7 +361,14 @@ class Perplexity:
             if re.status_code != 200:
                 raise Exception(
                     f"invalid session status_code: {re.status_code}")
-        return loads(j[1:])["sid"]
+        # return loads(j[1:])["sid"]
+        socket = json.loads(j[1:])
+        sid = socket["sid"]
+        self.socket = {
+            "ping_interval": socket["pingInterval"],
+            "ping_timeout": socket["pingTimeout"],
+        }
+        return sid
 
     def _ask_anonymous_user(self) -> bool:
         url = f"https://www.perplexity.ai/socket.io/?EIO=4&transport=polling&t={self.t}&sid={self.sid}"
@@ -384,6 +388,7 @@ class Perplexity:
             headers = {}
             for k, v in response.headers.items():
                 headers[k] = v
+            # print(headers)
             # print(response.cookies.get_dict())
             # self.session.headers.update(headers)
             # self.session.cookies = response.cookies
@@ -407,7 +412,7 @@ class Perplexity:
     def _get_cookies_str(self) -> str:
         cookies = ""
         for key, value in self.get_cookies_dict().items():
-            cookies += f"{key}={value};"
+            cookies += f"{key}={value}; "
         return cookies[:-2]
 
     def _write_file_url(self, filename: str, file_url: str) -> None:
@@ -424,15 +429,17 @@ class Perplexity:
 
     def _init_websocket(self) -> WebSocketApp:
         def on_open(ws: WebSocketApp) -> None:
-            ws.send("2probe")
-            ws.send("5")
+            ws.send("2probe".encode("utf-8"))
+            ws.send("5".encode("utf-8"))
 
         def on_message(ws: WebSocketApp, message: str) -> None:
+            message = str(message)
+            # print(message)
             self.last_message = message
             if message == "2":
-                ws.send("3")
+                ws.send("3".encode("utf-8"))
             elif message == '3probe':
-                ws.send('5')
+                ws.send('5'.encode("utf-8"))
             elif not self.finished:
                 self.get_socket_message(message)
 
@@ -455,15 +462,23 @@ class Perplexity:
         # header["Origin"] = "https://www.perplexity.ai"
         # header["Pragma"] = "no-cache"
         # header["Upgrade"] = "websocket"
-        header["User-Agent"] = self.get_headers_dict()["User-Agent"]
-        print(header)
+        # header["User-Agent"] = self.get_headers_dict()["User-Agent"]
+        # print(header)
         # headers = self.get_headers_dict()
         # print(headers)
         # websocket.enableTrace(True)
+        # return self.session.ws_connect(
+        #     url=f"wss://www.perplexity.ai/socket.io/?EIO=4&transport=websocket&sid={self.sid}",
+        #     # header={"User-Agent": self.get_headers_dict()["User-Agent"]},
+        #     # header=self.get_headers_dict(),
+        #     # cookie=self._get_cookies_str(),
+        #     on_open=on_open,
+        #     on_message=on_message,
+        #     on_error=on_error)
         return websocket.WebSocketApp(
             url=f"wss://www.perplexity.ai/socket.io/?EIO=4&transport=websocket&sid={self.sid}",
-            # header={"User-Agent": self.get_headers_dict()["User-Agent"]},
-            header=self.get_headers_dict(),
+            header={"User-Agent": self.get_headers_dict()["User-Agent"]},
+            # header=self.get_headers_dict(),
             cookie=self._get_cookies_str(),
             on_open=on_open,
             on_message=on_message,
@@ -592,21 +607,13 @@ class Perplexity:
                 self.queue.append(message)
                 self.finished = True
 
-    async def _ask(self, query: str, mode: str = "concise", focus: str = "internet", attachments: list[str] = [], language: str = "en-US", in_page: str = None, in_domain: str = None):
+    async def _ask6(self, query: str, mode: str = "concise", focus: str = "internet", attachments: list[str] = [], language: str = "en-US", in_page: str = None, in_domain: str = None):
         try:
             # header = self.user_agent
             header = {}
-            # header["Accept-Encoding"] = "gzip, deflate, br, zstd"
-            # header["Connection"] = "Upgrade"
-            header["Cookie"] = self._get_cookies_str()
-            # header["Host"] = "www.perplexity.ai"
-            # header["Origin"] = "https://www.perplexity.ai"
-            # header["Pragma"] = "no-cache"
-            # header["Upgrade"] = "websocket"
-            header["X-Client-Name"] = "Perplexity-iOS"
             header["User-Agent"] = self.get_headers_dict()["User-Agent"]
+            header["Cookie"] = self._get_cookies_str()
             # print(header)
-            # print(self.get_headers_dict())
             ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
             ssl_context.minimum_version = ssl.TLSVersion.TLSv1_2
             ssl_context.maximum_version = ssl.TLSVersion.TLSv1_3
@@ -657,6 +664,52 @@ class Perplexity:
             self.get_socket_message(message)
         await self.ws.close()
 
+    def _ask(self, query: str, mode: str = "concise", focus: str = "internet", attachments: list[str] = [], language: str = "en-US", in_page: str = None, in_domain: str = None):
+        try:
+            self.ws = self.session.wss_connect(
+                f"wss://www.perplexity.ai/socket.io/?EIO=4&transport=websocket&sid={self.sid}",
+                **self.socket,
+                origin="https://www.perplexity.ai"
+            )
+        except Exception as e:
+            raise Exception({
+                "message": str(e),
+                "email": self.email,
+                "cookies": self.get_cookies_dict(),
+            })
+        self.session.wss_send("2probe")
+        self.session.wss_send("5")
+        self._start_interaction()
+        ws_message: str = f"{self.base + self.n}" + dumps([
+            "perplexity_ask",
+            query,
+            {
+                "version": "2.9",
+                "source": "default",  # "ios"
+                "frontend_session_id": self.frontend_session_id,
+                "language": language,
+                # "timezone": "CET",
+                'last_backend_uuid': self.backend_uuid,
+                "attachments": attachments,
+                "search_focus": focus,
+                "frontend_uuid": str(uuid4()),
+                "mode": mode,
+                "prompt_source": "user",
+                "query_source": "home",
+                "is_incognito": False,
+                # "use_inhouse_model": True
+                "in_page": in_page,
+                "in_domain": in_domain
+            }
+        ])
+
+        self.session.wss_send(ws_message)
+        while not self.finished:
+            message = self.session.wss_recv()
+            self.get_socket_message(message)
+
+        self.session.close()
+
     def _s(self, query: str, mode: str = "concise", focus: str = "internet", attachments: list[str] = [], language: str = "en-GB", in_page: str = None, in_domain: str = None) -> None:
 
         if len(attachments) >= 4:
@@ -704,7 +757,8 @@ class Perplexity:
                 "in_domain": in_domain
             }
         ])
-        self.ws.send(ws_message)
+        print(ws_message)
+        self.ws.send(ws_message.encode("utf-8"))
 
     def search(self, query: str, mode: str = "concise", focus: str = "internet", attachments: list[str] = [], language: str = "en-GB", timeout: float = 30, in_page: str = None, in_domain: str = None) -> Iterable[Dict]:
         try:
@@ -725,13 +779,22 @@ class Perplexity:
         finally:
             self.close()
 
+    def run_task(self, fn):
+        if not self.loop:
+            self.loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(self.loop)
+        task = self.loop.create_task(fn())
+        self.loop.run_until_complete(task)
+        result = task.result()
+        return result
+
     def search_sync(self, query: str, mode: str = "concise", focus: str = "internet", attachments: list[str] = [], language: str = "en-US", timeout: float = 30, in_page: str = None, in_domain: str = None) -> dict:
         try:
             self.mode = mode
             self.timeout = timeout
             self.check_limit()
-            asyncio.run(self._ask(query, mode, focus, attachments,
-                                  language, in_page, in_domain))
+            self._ask(query, mode, focus, attachments,
+                      language, in_page, in_domain)
             re = self.queue.pop(-1)
             try:
                 re['text'] = json.loads(re['text'])
@@ -765,12 +828,14 @@ class Perplexity:
             self._s(query, mode, focus, attachments,
                     language, in_page, in_domain)
             start_time: float = time()
+            print(self.finished)
             while not self.finished:
                 if self.soket_error:
                     raise Exception(self.soket_error)
                 if self.timeout and time() - start_time > self.timeout:
                     raise Exception(
                         f"timeout & last message: {self.last_message}")
+            print(self.finished)
             re = self.queue.pop(-1)
             try:
                 re['text'] = json.loads(re['text'])
@@ -791,6 +856,7 @@ class Perplexity:
                 })
             return re
         except Exception as e:
+            print(e)
             raise CustomException(e)
         finally:
             if self._close:
@@ -908,6 +974,9 @@ class Perplexity:
         if self.session:
             self.session.close()
             self.session = None
+        if self.loop:
+            self.loop.close()
+            self.loop = None
         self.finished = True
         self.last_message = None
         self.close_driver()
@@ -931,8 +1000,10 @@ cookies = {
 # cookies = "eyJBV1NBTEIiOiJXTDVHYlBHcGRNUHo4RTRXXC8zaW5QWDc3bmJmYk16cVcxbmJ3dXNhdkFWREtRdFVqN1lBT2VENEhxMjc5VFVoaTd2NEJadFFYcE5cL0lNaENMZXRua3YyUmNIaU93Q2tGR2I1TjNKNFZ3WTlhVm56MldqQWRxYVlYY1IyamFsQzlKNlV3ZnBLXC9jRzlIRGxVb3h6OW5PRXd0aUlMenZpd2piVGJxVEZCcDNydStRcE1tZUVFb3QyY2Iyenhvcmx3PT0iLCJBV1NBTEJDT1JTIjoiV0w1R2JQR3BkTVB6OEU0V1wvM2luUFg3N25iZmJNenFXMW5id3VzYXZBVkRLUXRVajdZQU9lRDRIcTI3OVRVaGk3djRCWnRRWHBOXC9JTWhDTGV0bmt2MlJjSGlPd0NrRkdiNU4zSjRWd1k5YVZuejJXakFkcWFZWGNSMmphbEM5SjZVd2ZwS1wvY0c5SERsVW94ejluT0V3dGlJTHp2aXdqYlRicVRGQnAzcnUrUXBNbWVFRW90MmNiMnp4b3Jsdz09IiwiX19TZWN1cmUtbmV4dC1hdXRoLmNhbGxiYWNrLXVybCI6Imh0dHBzJTNBJTJGJTJGd3d3LnBlcnBsZXhpdHkuYWkiLCJfX1NlY3VyZS1uZXh0LWF1dGguc2Vzc2lvbi10b2tlbiI6ImV5SmhiR2NpT2lKa2FYSWlMQ0psYm1NaU9pSkJNalUyUjBOTkluMC4uZVlGYkdKdWRsaXdCOHRZYS5mMi1vbEpwQmNFTWNwU3YzRHlFcFA3ZFc5dTUxaE1jU0pJYnVIWjMybUxabXp5MkVPM2VBT3BVZ1RUa3BqWndlaTFjbzIwUWczdzlWMF9uQmxYeU9VLVZDQ3VDMUpkSHZuMFBhYzB6SXp1WGpmTGVFRFBMR05LbjdUS0dBVDlCRm1KdkRFa3YxRzlJWDVXOUNISHp0b2ttT1plQnZMLUE2T3BGSndEb0NiM2l2UHNHdUZLVGZiMXpoV1lUQlpYWGVhWTU3dWV0czZVZDF5a0JJalYycUNYSTQ4Uy1wZ1RHTHhnLklFM3oyVmh6M0RSNU1jMVZXTTRDTlEiLCJfX2NmX2JtIjoidVNJaXc2NEdjUWVsRmx2aG80RmRwa01QRTFRQXdmSHYzV05DZ3BWY1RWMC0xNzExODQ2MTM2LTEuMC4xLjEtNWhfbldIMXViTTFsc01mdTJ2M2FqMEl4Q09YT3ltNGRpWDZYdDRGcTFYQzZvRE9JRURqdlc5R0hNeG1IaURVcWFNbHUwdzRhZy5mMGtuTXNFNmJyNVEiLCJfX2NmbGIiOiIwMkRpdUR5dkZNbUs1cDlqVmJWbk1OU0tZWmhVTDlhR21qRzhFWWY0NzhDengiLCJuZXh0LWF1dGguY3NyZi10b2tlbiI6ImE2MTE2ZGMxMGM5OWQ1ODAzNmNjMDNiMTA0YjdiMjE3MmM2NTQ3ZWY1NGVlMDM0MmFiNTExOWQ1ZGY0M2I2MTYlN0M5OTQ3ZDZjYjYwNDI3MmI3ZDJmYTQyNGQ3YzBkZjVkZDMxMTM3ZmQ1NTlmMWU0YWNjZTMyNmVlZDk3MjQ3YzlhIn0="
 if __name__ == '__main__':
     perplexity = Perplexity()
-    answer = perplexity.init(debug=True, create=True,
-                             email=email, cookies=cookies)
+    # answer = perplexity.get_driver("https://www.perplexity.ai/")
+    # answer = perplexity.driver_cookies()
+    # perplexity.close_driver()
+    answer = perplexity.init(debug=True, email=email, cookies=cookies)
     # answer = perplexity.init(email=email, cookies=cookies,
     #                          debug=True, conversationId=conversationId)
     # asyncio.run(perplexity._ask("how are you?"))
