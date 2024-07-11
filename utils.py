@@ -10,14 +10,11 @@ import re
 from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup
+from requests import Response
 
 from constants import DELIMETER
 # import tls_client
 import pyreqwest_impersonate as pri  # type: ignore
-from curl_cffi import CurlWsFlag
-from curl_cffi.requests import Session, WebSocket, Response
-import requests
-import tls_client
 
 from http_client import HttpClient
 

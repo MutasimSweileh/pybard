@@ -149,7 +149,7 @@ class HttpClient(tls_client.Session):
                 url,
                 **kwargs
             )
-            print(ws.request_headers)
+            # print(ws.request_headers)
             self.ws = ws
             return ws
         return self.run_task(_)
