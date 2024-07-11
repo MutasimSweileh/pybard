@@ -19,3 +19,4 @@ tls-client==1.0.1
 anticaptchaofficial==1.0.52
 bs4==0.0.1
 pyreqwest_impersonate==0.4.8
+curl_cffi==0.6.2

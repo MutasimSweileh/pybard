@@ -7,7 +7,7 @@ from tls_client import structures
 import asyncio
 import json
 import random
-
+from curl_cffi.requests import Session, WebSocket, Response, Cookies
 import websockets
 
 
@@ -16,10 +16,15 @@ class CustomHeaders(structures.CaseInsensitiveDict):
         return {k: v for k, v in self.items()}
 
 
-class HttpClient(tls_client.Session):
+class CustomCookies(Cookies):
+    def get_dict(self):
+        return {k: v for k, v in self.items()}
+
+
+class HttpClient(Session):
 
     def __init__(self, *args, **kwargs) -> None:
-        self.brower = "chrome_120"
+        self.brower = "chrome"
         self.timeout = 30
         self.debug = False
         self.loop = None
@@ -29,9 +34,9 @@ class HttpClient(tls_client.Session):
         self.timeout_seconds = kwargs.get("timeout", self.timeout)
         kwargs = self.remove_unwanted(kwargs)
         kwargs = {
-            "client_identifier": brower,
+            "impersonate": brower,
             "debug": self.debug,
-            "random_tls_extension_order": True,
+            # "random_tls_extension_order": True,
             **kwargs
         }
         super().__init__(**kwargs)
@@ -41,6 +46,7 @@ class HttpClient(tls_client.Session):
         }
         self.headers.update(headers)
         self.headers = CustomHeaders(self.headers)
+        self.cookies = CustomCookies(self.cookies)
 
     def remove_unwanted(self, headers: dict = {}, df=None):
         if not df:
@@ -183,25 +189,26 @@ if __name__ == "__main__":
     url = "https://www.perplexity.ai/"
     response = session.get(url)
     print(response.status_code)
-    url = "https://www.perplexity.ai/api/auth/session"
-    response = session.get(url)
-    print(response.text)
-    url = f"https://www.perplexity.ai/socket.io/?EIO=4&transport=polling&t={t}"
-    response = session.get(url)
-    socket = json.loads(response.text[1:])
-    sid = socket["sid"]
-    socket = {
-        "ping_interval": socket["pingInterval"],
-        "ping_timeout": socket["pingTimeout"],
-    }
-    url = f"https://www.perplexity.ai/socket.io/?EIO=4&transport=polling&t={t}&sid={sid}"
-    response = session.post(
-        url=url,
-        data="40{\"jwt\":\"anonymous-ask-user\"}"
-    )
-    print(response.text)
-    ws_url = f"wss://www.perplexity.ai/socket.io/?EIO=4&transport=websocket&sid={sid}"
-    session.wss_connect(ws_url, **socket)
+    print(session.cookies.get_dict())
+    # url = "https://www.perplexity.ai/api/auth/session"
+    # response = session.get(url)
+    # print(response.text)
+    # url = f"https://www.perplexity.ai/socket.io/?EIO=4&transport=polling&t={t}"
+    # response = session.get(url)
+    # socket = json.loads(response.text[1:])
+    # sid = socket["sid"]
+    # socket = {
+    #     "ping_interval": socket["pingInterval"],
+    #     "ping_timeout": socket["pingTimeout"],
+    # }
+    # url = f"https://www.perplexity.ai/socket.io/?EIO=4&transport=polling&t={t}&sid={sid}"
+    # response = session.post(
+    #     url=url,
+    #     data="40{\"jwt\":\"anonymous-ask-user\"}"
+    # )
+    # print(response.text)
+    # ws_url = f"wss://www.perplexity.ai/socket.io/?EIO=4&transport=websocket&sid={sid}"
+    # session.wss_connect(ws_url, **socket)
     # print(session.wss_send("2probe"))
     # print(session.wss_send("5"))
     # message = "421" + json.dumps([
