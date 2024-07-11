@@ -3,7 +3,7 @@ import ssl
 from typing import OrderedDict
 import certifi
 import tls_client
-from tls_client import structures
+from tls_client import structures, settings
 import asyncio
 import json
 import random
@@ -31,7 +31,9 @@ class HttpClient(Session):
         self.ws: websockets.WebSocketClientProtocol = None
         brower = kwargs.get("brower", self.brower)
         headers = kwargs.get("headers", {})
-        self.timeout_seconds = kwargs.get("timeout", self.timeout)
+        self.is_curl = issubclass(self.__class__, Session)
+        self.timeout = self.timeout_seconds = kwargs.get(
+            "timeout", self.timeout)
         kwargs = self.remove_unwanted(kwargs)
         kwargs = {
             "client_identifier": brower,
@@ -39,21 +41,24 @@ class HttpClient(Session):
             "random_tls_extension_order": True,
             **kwargs
         }
-        if (issubclass(self.__class__, Session)):
-            client_identifier = kwargs["client_identifier"]
+        client_identifier = kwargs["client_identifier"]
+        if (self.is_curl):
             if not BrowserType.has(client_identifier):
                 client_identifier = "chrome"
             kwargs["impersonate"] = client_identifier
             del kwargs["client_identifier"]
             del kwargs["random_tls_extension_order"]
+        elif client_identifier not in settings.ClientIdentifiers.__args__:
+            kwargs["client_identifier"] = "chrome_120"
         super().__init__(**kwargs)
         headers = {
             **self.get_browser_headers(rand=True),
             **headers
         }
+        print(kwargs)
         self.headers.update(headers)
         self.headers = CustomHeaders(self.headers)
-        if (issubclass(self.__class__, Session)):
+        if (self.is_curl):
             self.cookies = CustomCookies(self.cookies)
 
     def remove_unwanted(self, headers: dict = {}, df=None):
@@ -101,6 +106,8 @@ class HttpClient(Session):
         return result
 
     def request(self, *args, **kwargs):
+        if self.is_curl:
+            return super().request(**kwargs)
         return self.execute_request(**kwargs)
 
     def close(self) -> str:
@@ -190,7 +197,7 @@ class HttpClient(Session):
 
 if __name__ == "__main__":
     # Create a client instance
-    session = HttpClient(timeout=60)
+    session = HttpClient(timeout=60, client_identifier="chrome_117")
     t = format(random.getrandbits(32), "08x")
     j = session.get_json()
     # session.cookies.update(j)
