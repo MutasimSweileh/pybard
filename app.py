@@ -113,7 +113,6 @@ def captcha():
 def requesta():
     data = get_fix_form(request)
     url = data.get("url", None)
-    brower = data.get("brower", "chrome_120")
     timeout = data.get("timeout", 30)
     headers = data.get("headers", {})
     cookies = data.get("cookies", None)
@@ -134,7 +133,7 @@ def requesta():
         pas["data"] = d
     session = None
     try:
-        session = get_http_client(timeout=timeout, brower=brower)
+        session = get_http_client(timeout=timeout)
         if method == "GET":
             response = session.get(**pas)
         else:
