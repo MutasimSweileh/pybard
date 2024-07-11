@@ -7,7 +7,7 @@ from tls_client import structures
 import asyncio
 import json
 import random
-from curl_cffi.requests import Session, WebSocket, Response, Cookies
+from curl_cffi.requests import Session, WebSocket, Response, Cookies, BrowserType
 import websockets
 
 
@@ -24,7 +24,7 @@ class CustomCookies(Cookies):
 class HttpClient(Session):
 
     def __init__(self, *args, **kwargs) -> None:
-        self.brower = "chrome"
+        self.brower = "chrome_120"
         self.timeout = 30
         self.debug = False
         self.loop = None
@@ -34,11 +34,18 @@ class HttpClient(Session):
         self.timeout_seconds = kwargs.get("timeout", self.timeout)
         kwargs = self.remove_unwanted(kwargs)
         kwargs = {
-            "impersonate": brower,
+            "client_identifier": brower,
             "debug": self.debug,
-            # "random_tls_extension_order": True,
+            "random_tls_extension_order": True,
             **kwargs
         }
+        if (issubclass(self.__class__, Session)):
+            client_identifier = kwargs["client_identifier"]
+            if not BrowserType.has(client_identifier):
+                client_identifier = "chrome"
+            kwargs["impersonate"] = client_identifier
+            del kwargs["client_identifier"]
+            del kwargs["random_tls_extension_order"]
         super().__init__(**kwargs)
         headers = {
             **self.get_browser_headers(rand=True),
@@ -46,7 +53,8 @@ class HttpClient(Session):
         }
         self.headers.update(headers)
         self.headers = CustomHeaders(self.headers)
-        self.cookies = CustomCookies(self.cookies)
+        if (issubclass(self.__class__, Session)):
+            self.cookies = CustomCookies(self.cookies)
 
     def remove_unwanted(self, headers: dict = {}, df=None):
         if not df:
