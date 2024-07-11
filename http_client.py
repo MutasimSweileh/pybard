@@ -153,7 +153,7 @@ class HttpClient(Session):
             "user_agent_header": self.headers.get("User-Agent"),
             "ssl": ssl_context,
             "max_size": None,
-            "origin": "https://www.perplexity.ai",
+            # "origin": "https://www.perplexity.ai",
             **kwargs
         }
         extra_headers = {
